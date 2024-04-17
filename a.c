@@ -437,6 +437,12 @@ void print_LINE(FILE *f, int elmIndex, int nodeIndex1, int nodeIndex3, int pp)
     fprintf(f, "LINE :(%5d)(%5d:%5d:%5d:%5d) TYPL(  1)\n", elmIndex, nodeIndex1, nodeIndex1 + pp, nodeIndex3, nodeIndex3 + pp);
 }
 
+void print_FILM(FILE *f, int elmIndex, int face1, int face2, int nodePp[3], int dir1, int dir2, int typf)
+{
+    fprintf(f, "FILM :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPF(%3d))\n", elmIndex, face1, face1 + nodePp[dir1], face1 + nodePp[dir1] + nodePp[dir2], face1 + nodePp[dir2], face2, face2 + nodePp[dir1], face2 + nodePp[dir1] + nodePp[dir2], face2 + nodePp[dir2], typf);
+}
+
+
 /*COPYELMデータ書き込み*/
 int print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, int node_Inc, int set)
 {
