@@ -360,11 +360,13 @@ void print_tail_template(FILE *f)
     "TYPB :(  1)  MATS(  2)  AXIS(   )  COEF=        D1=1       D2=        :\n"
     "TYPQ :(  1)  MATS(  1)  AXIS(   )  THICKNESS=1       P-STRAIN=(0) (0:NO)\n"
     "TYPL :(  1)  MATJ(  1)  AXIS(  1)  THICKNESS=1        Z=(1) (1:N  2:S)\n"
+    "TYPF :(  1)  MATJ(  2)  AXIS(   )\n"
     "\n----+----\n"
     "MATS :(  1)  ES=2.05   (E+5) PR=0.3   SY=295    HR=0.01  ALP=      (E-5)\n"
     "MATS :(  2)  ES=2.05   (E+5) PR=0.3   SY=295    HR=0.01  ALP=      (E-5)\n"
     "MATC :(  1)  EC=2.05   (E+4) PR=0.2   FC=30     FT=3     ALP=      (E-5)\n"
     "MATJ :(  1)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n"
+    "MATJ :(  2)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n"
     "\n----+----\n"
     "AXIS :(  1)  TYPE=(1) (1:GLOBAL 2:ELEMENT 3:INPUT 4:CYLINDER 5:SPHERE)\n"
     "\n----+----\n"
@@ -436,6 +438,12 @@ void print_LINE(FILE *f, int elmIndex, int nodeIndex1, int nodeIndex3, int pp)
 {
     fprintf(f, "LINE :(%5d)(%5d:%5d:%5d:%5d) TYPL(  1)\n", elmIndex, nodeIndex1, nodeIndex1 + pp, nodeIndex3, nodeIndex3 + pp);
 }
+
+void print_FILM(FILE *f, int elmIndex, int face1, int face2, int nodePp[3], int dir1, int dir2, int typf)
+{
+    fprintf(f, "FILM :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPF(%3d)\n", elmIndex, face1, face1 + nodePp[dir1], face1 + nodePp[dir1] + nodePp[dir2], face1 + nodePp[dir2], face2, face2 + nodePp[dir1], face2 + nodePp[dir1] + nodePp[dir2], face2 + nodePp[dir2], typf);
+}
+
 
 /*COPYELMデータ書き込み*/
 int print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, int node_Inc, int set)
@@ -649,10 +657,11 @@ struct nodeElm add_concrete(FILE *f, struct nodeElm startIndex, struct nodeElm p
     return returnIndex;
 }
 
-void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeometry[], struct nodeElm pp[], struct modelsize rcs)
+void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeometry[], struct nodeElm pp[], struct modelsize rcs, int startNode)
 {
     int cnt = 0;
     double cordi[XYZ];
+    int filmIndex;
     struct nodeElm index;
     int pp_node[3];
     for(int i = 0; i < 3; i++)
@@ -661,11 +670,15 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
     }
     int pp_elm[3];
     pp_elm[0] = 1;
-    pp_elm[1] = pp[1].elm + 3;
+    pp_elm[1] = pp[1].elm + 4;
     pp_elm[2] = pp_elm[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2);
+
+    int filmStart = startIndex.elm + (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 3) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2);
+    filmStart = next_index(filmStart);
 
     index = startIndex;
     int startIndexNode = startIndex.node;
+    const int concreteSteelDelt = startIndex.node - (startNode + (modelGeometry[2].boundary[2] + 2) * pp[2].node);
     fprintf(f, "\n----COLUMN QUAD----\n");
     //x直交面
     fprintf(f, "\n----x\n");
@@ -692,6 +705,7 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         }
         startIndexNode += (modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j]) * pp[0].node;
     }
+    //四辺形要素
     index = startIndex;
     index.elm += pp_elm[1] + pp_elm[2];
     for(int i = 2; i < 5; i++)
@@ -702,6 +716,25 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         index.node += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i]) * pp[0].node;
         index.elm += pp_elm[0] * (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] + 1); 
     }
+    //film要素
+    fprintf(f, "\n----\n");
+    filmIndex = filmStart + pp_elm[1] + 2 * pp_elm[2];
+    index = startIndex;
+    int delt = concreteSteelDelt;
+    for(int i = 0; i < 2; i++)
+    {
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 2, 1, 1);
+        print_COPYELM(f, filmIndex, 0, 0, pp_elm[1], pp_node[1], modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1) * pp_elm[1], pp_elm[1], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
+        filmIndex  += modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] + 1;
+        index.node += modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]; 
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 1, 2, 1);
+        print_COPYELM(f, filmIndex, 0, 0, pp_elm[1], pp_node[1], modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1) * pp_elm[1], pp_elm[1], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
+        filmIndex += pp_elm[0];
+        delt -= pp_node[0];
+    }
+
     //y直交面
     fprintf(f, "\n----y\n");
     index = startIndex;
@@ -719,6 +752,7 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         }
         index.node = startIndex.node + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp[1].node;
     }
+    //四辺形要素
     index = startIndex;
     index.elm += pp_elm[0] + pp_elm[2];
     for(int k = 0; k < 2; k++)
@@ -733,6 +767,25 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         }
         index.node = startIndex.node + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp_node[1];
         index.elm  = startIndex.elm + pp_elm[0] + pp_elm[2] + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * pp_elm[1];
+    }
+    //film要素
+    fprintf(f, "\n----\n");
+    filmIndex = filmStart + pp_elm[0] + 2 * pp_elm[2];
+    index = startIndex;
+    delt = concreteSteelDelt;
+    for(int i = 0; i < 2; i++)
+    {
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 0, 2, 1);
+        print_COPYELM(f, filmIndex, 0, 0, pp_elm[0], pp_node[0], modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1) * pp_elm[0], pp_elm[0], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
+        filmIndex  += (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * pp_elm[1];
+        index.node += (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp_node[1]; 
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 2, 0, 1);
+        print_COPYELM(f, filmIndex, 0, 0, pp_elm[0], pp_node[0], modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1) * pp_elm[0], pp_elm[0], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
+        filmIndex  = filmStart + pp_elm[0] + pp_elm[2] + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] + 1) * pp_elm[0];
+        index.node = startIndex.node + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]) * pp_elm[0];
+        delt -= pp_node[0];
     }
 
     //z直交面
@@ -756,7 +809,6 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
             index.node ++;
         }
     }
-    fprintf(f, "\n");
     for(int j = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); j <= coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); j++)
     {
         if(j != modelGeometry[0].boundary[3])
@@ -770,7 +822,6 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
             }
         }
     }
-    fprintf(f, "\n");
     for(int j = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length); j < modelGeometry[1].boundary[2]; j++)
     {
         index.node = startIndex.node + j * pp[1].node;
@@ -784,7 +835,6 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
             index.elm  += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] + 1) * pp_elm[0]; 
         }
     }
-    fprintf(f, "\n");
     for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i++)
     {
 
@@ -798,6 +848,48 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         print_COPYELM(f, index.elm, 0, 0, (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, 1);
         print_COPYELM(f, index.elm, index.elm + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], pp_elm[1], pp[1].node, coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length) - 1);
     }
+    //film要素
+    fprintf(f, "\n----\n");
+    index = startIndex;
+    delt = concreteSteelDelt;
+    for(int j = 2; j < 4; j++)
+    {
+        for(int i = modelGeometry[1].boundary[1]; i < modelGeometry[1].boundary[2]; i++)
+        {
+            index.node = (modelGeometry[0].boundary[j] - modelGeometry[0].boundary[2]) * pp_node[0] + startIndex.node + i * pp_node[1];
+            filmIndex = filmStart + pp_elm[0] + (i + 1) * pp_elm[1] + (modelGeometry[0].boundary[j] - modelGeometry[0].boundary[2]) * pp_elm[0];
+            if(j >= 3)
+            {
+                filmIndex  += pp_elm[0];
+                delt -= pp_node[0];
+            }
+            print_FILM(f, filmIndex, index.node - delt - pp_node[2], index.node, pp_node, 1, 0, 1);
+            print_FILM(f, filmIndex + pp_elm[2], index.node - delt, index.node, pp_node, 0, 1, 1);
+            print_COPYELM(f, filmIndex, filmIndex + pp_elm[2], pp_elm[2], pp_elm[0], pp_node[0], modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j] - 1);
+            
+            print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 0, 1, 1);
+            print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 1, 0, 1);
+            print_COPYELM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], pp_elm[2], pp_elm[0], pp_node[0], modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j] - 1);
+        }
+    }
+    index = startIndex;
+    delt = concreteSteelDelt;
+    for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i++)
+    {
+        index.node = startIndex.node + (i - modelGeometry[0].boundary[2]) * pp_node[0];
+        filmIndex = filmStart + (i - modelGeometry[0].boundary[2] + 1) * pp_elm[0] + pp_elm[1];
+        if(i >= modelGeometry[0].boundary[3])
+        {
+            delt -= pp_node[0];
+        }
+        print_FILM(f, filmIndex, index.node - delt - pp_node[2], index.node, pp_node, 0, 1, 1);
+        print_FILM(f, filmIndex + pp_elm[2], index.node - delt, index.node, pp_node, 1, 0, 1);
+        print_COPYELM(f, filmIndex, filmIndex + pp_elm[2], pp_elm[2], pp_elm[1], pp_node[1], modelGeometry[1].boundary[1] - 1);
+
+        print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 0, 1, 1);
+        print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 1, 0, 1);
+        print_COPYELM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], pp_elm[2], pp_elm[1], pp_node[1], modelGeometry[1].boundary[1] - 1);
+    }
 
 }
 
@@ -809,30 +901,28 @@ void build_column()
 int main()
 {
     /*todo
-        ---柱領域---
-        内部コンクリート　　要素タイプ
-        かぶりコンクリート　要素タイプ
+
+        節点要素番号を返す
+        番号の表示
+
+        ---要素タイプ---
+        内部コンクリート　
+        かぶりコンクリート
+        鉄骨梁
+        film要素
 
         ---梁領域---
         梁加力治具
         梁
-
-        ---接合要素---
-        FILEM
 
         ---節点結合---
         HOLD
 
         ---境界条件---
         節点自由度
-        節点荷重（柱or梁）
+        節点強制変位（柱or梁）
 
         データチェック
-    */
-
-    /*流れ
-        inpt.txtに設定を入力
-        OUT_FILE_NAMEに書き込み
     */
 
     /*名称
@@ -948,7 +1038,7 @@ int main()
 
     //四辺形要素
     console_index(index, "quad column start");
-    quad_collumn(fout, index, modelGeometry, pp, rcs);
+    quad_collumn(fout, index, modelGeometry, pp, rcs, startNode);
     //六面体要素
 
     //四辺形要素
