@@ -657,7 +657,7 @@ struct nodeElm add_concrete(FILE *f, struct nodeElm startIndex, struct nodeElm p
     return returnIndex;
 }
 
-void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeometry[], struct nodeElm pp[], struct modelsize rcs, int startNode)
+struct nodeElm quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeometry[], struct nodeElm pp[], struct modelsize rcs, int startNode)
 {
     int cnt = 0;
     double cordi[XYZ];
@@ -890,7 +890,11 @@ void quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeome
         print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 1, 0, 1);
         print_COPYELM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], pp_elm[2], pp_elm[1], pp_node[1], modelGeometry[1].boundary[1] - 1);
     }
-
+    index.node  = startIndex.node;
+    index.node += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 1) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1);
+    index.elm   = filmStart;
+    index.elm  += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 4) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 4);
+    return index;
 }
 
 void build_column()
@@ -906,7 +910,7 @@ int main()
         番号の表示
 
         ---要素タイプ---
-        内部コンクリート　
+        内部コンクリート
         かぶりコンクリート
         鉄骨梁
         film要素
@@ -1038,7 +1042,8 @@ int main()
 
     //四辺形要素
     console_index(index, "quad column start");
-    quad_collumn(fout, index, modelGeometry, pp, rcs, startNode);
+    index = quad_collumn(fout, index, modelGeometry, pp, rcs, startNode);
+    console_index(index, "quad column end");
     //六面体要素
 
     //四辺形要素
