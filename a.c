@@ -20,8 +20,7 @@ struct components
 
 struct Rebar 
 {
-    double x;
-    double y;
+    double cordi[2];
 };
 
 struct modelsize
@@ -50,17 +49,16 @@ struct nodeElm
     int elm;
 };
 
-struct Point
+struct increment
 {
-    int x;
-    int y;
-    int z;
+    int node[XYZ];
+    int elm [XYZ];
 };
 
 struct startEnd
 {
-    struct Point start;
-    struct Point end;
+    int start[XYZ];
+    int end  [XYZ];
 };
 
 /*戻り値//要素数*/
@@ -128,18 +126,18 @@ struct modelsize Model_Size_Load(FILE *f)
     while(index <= REBAR_MAX)
     {
         fscanf(f, "Rebar %d:", &index);
-        int result = fscanf(f, " X=%lf Y=%lf", &temp.rebar[index - 1].x, &temp.rebar[index - 1].y);
+        int result = fscanf(f, " X=%lf Y=%lf", &temp.rebar[index - 1].cordi[0], &temp.rebar[index - 1].cordi[1]);
         if (result == EOF) {
             // ファイルの終わりに達した場合はループを終了
             break;
         } else if (result == 0) {
             // 数値の読み取りに失敗した場合はエラーを表示して終了
             printf("[ERROR] load mesh\n");
-            temp.rebar[index].x = -999;
-            temp.rebar[index].y = -999;
+            temp.rebar[index].cordi[0] = -999;
+            temp.rebar[index].cordi[1] = -999;
             break;
         }
-        temp.rebar[index - 1].x += (temp.beam.span - temp.column.depth) / 2;
+        temp.rebar[index - 1].cordi[0] += (temp.beam.span - temp.column.depth) / 2;
         while((fgetc(f)) != '\n'){}
     }
     return temp;
@@ -268,12 +266,12 @@ void console_model_sizes(struct modelsize rcs)
     printf("\nX    ");
     for(int i = 0; i < REBAR_MAX; ++i)
     {
-        printf("%7.1f", rcs.rebar[i].x);
+        printf("%7.1f", rcs.rebar[i].cordi[0]);
     }
     printf("\nY    ");
     for(int i = 0; i < REBAR_MAX; ++i)
     {
-        printf("%7.1f", rcs.rebar[i].y);
+        printf("%7.1f", rcs.rebar[i].cordi[1]);
     }
     printf("\n");
 
@@ -319,12 +317,12 @@ void console_boundary(struct geometry model[])
     printf("\n");
 }
 
-void console_increment(struct nodeElm pp[])
+void console_increment(struct increment pp)
 {
     printf("\n------------------[ INCREMENT ]------------------\n");
     printf("         X     Y     Z\n");
-    printf("node %5d %5d %5d\n", pp[0].node, pp[1].node, pp[2].node);
-    printf("elm  %5d %5d %5d\n", pp[0].elm, pp[1].elm, pp[2].elm);
+    printf("node %5d %5d %5d\n", pp.node[0], pp.node[1], pp.node[2]);
+    printf("elm  %5d %5d %5d\n", pp.elm[0], pp.elm[1], pp.elm[2]);
 }
 
 void console_index(struct nodeElm index, char *str)
@@ -419,9 +417,9 @@ int print_COPYNODE(FILE *f, int startIndex, int endIndex, int interval, double m
     }
 }
 
-void print_BEAM(FILE *f, int elmIndex, int startNode, int endNode, int TYPB)
+void print_BEAM(FILE *f, int elmIndex, int nodeIndex, int nodePp, int typb)
 {
-    fprintf(f, "BEAM :(%5d)(%5d:%5d) TYPB(%3d)  Y-NODE(     )\n", elmIndex, startNode, endNode, TYPB);
+    fprintf(f, "BEAM :(%5d)(%5d:%5d) TYPB(%3d)  Y-NODE(     )\n", elmIndex, nodeIndex, nodeIndex + nodePp, typb);
 }
 
 void print_QUAD(FILE *f, int elmIndex, int startNode, int node_pp[], int dir1, int dir2, int TYPQ)
@@ -467,272 +465,311 @@ int print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, int
     }
 }
 
-/*--要素生成-----------------------------------------------*/
-void generate_beam(FILE *f, struct nodeElm pp[], double coordinates[], struct startEnd point, struct nodeElm startIndex, double meshLen[], int dir)
+int plot_node(FILE *f, int nodeIndexStart, struct startEnd point, struct geometry geo[], int nodePp[])
 {
-    const int elmPPz = 1;
-    int cnt;
-    int index = startIndex.node;
+    int dir = 0;
+    int _dir;
+    int index = nodeIndexStart;
+    int delt = 0;
+    double cordi[XYZ];
     //節点定義
-    print_NODE(f, index, coordinates);
-    //節点コピー
-    for(int i = point.start.z; i < point.end.z; i += cnt)
+    for(int i = 0; i < XYZ; i++)
     {
-        cnt = count_consecutive(i, point.end.z, meshLen);
-        print_COPYNODE(f, index, 0, 0, meshLen[i], pp[2].node, cnt, dir);
-        index += cnt * pp[2].node;
+        cordi[i] = point_to_coordinate(point.start[i], geo[i].mesh.length);
     }
-    //要素定義
-    index = startIndex.elm;
-    print_BEAM(f, index, startIndex.node, startIndex.node + pp[2].node, 1);
-    //要素コピー
-    print_COPYELM(f, index, 0, 0, elmPPz, pp[2].node, point.end.z - point.start.z - 1);
+    print_NODE(f, index, cordi);
+    //節点コピー
+    for(dir = 0; dir < XYZ; dir++)
+    {
+        if(point.end[dir] > point.start[dir])
+        {
+            index = nodeIndexStart;
+            for(int i = point.start[dir], cnt = 0; i < point.end[dir]; i += cnt)
+            {
+                cnt = count_consecutive(i, point.end[dir], geo[dir].mesh.length);
+                if(cnt < 0)
+                {
+                    printf("[ERROR] X\n");
+                    return -1;
+                }
+                print_COPYNODE(f, index, 0, 0, geo[dir].mesh.length[i], nodePp[dir], cnt, dir);
+                index += cnt * nodePp[dir];
+            }
+            delt = index - nodeIndexStart;
+            _dir = dir;
+            dir++;
+            break;
+        }
+    }
+    for(; dir < XYZ; dir++)
+    {
+        if(point.end[dir] > point.start[dir])
+        {
+            index = nodeIndexStart;
+            for(int i = point.start[dir], cnt = 0; i < point.end[dir]; i += cnt)
+            {
+                cnt = count_consecutive(i, point.end[dir], geo[dir].mesh.length);
+                if(cnt < 0)
+                {
+                    printf("[ERROR] Y\n");
+                    return -1;
+                }
+                print_COPYNODE(f, index, index + delt, nodePp[_dir], geo[dir].mesh.length[i], nodePp[dir], cnt, dir);
+                index += cnt * nodePp[dir];
+            }
+            dir++;
+            break;
+        }
+    }
+    if(dir < XYZ && point.end[dir] > point.start[dir])
+    {
+        for(int j = point.start[1]; j <= point.end[1]; j++)
+        {
+            index = nodeIndexStart + (j - point.start[1]) * nodePp[1];
+            for(int i = point.start[2], cnt = 0; i < point.end[2]; i += cnt)
+            {
+                cnt = count_consecutive(i, point.end[2], geo[2].mesh.length);
+                if(cnt < 0)
+                {
+                    printf("[ERROR] Z\n");
+                    return -1;
+                }
+                print_COPYNODE(f, index, index + delt, nodePp[0], geo[2].mesh.length[i], nodePp[2], cnt, 2);
+                index += cnt * nodePp[2];
+            }
+        }
+    }
+    return nodeIndexStart + (point.end[0] - point.start[0]) * nodePp[0] + (point.end[1] - point.start[1]) * nodePp[1] + (point.end[2] - point.start[2]) * nodePp[2];
 }
 
-struct nodeElm generate_hexa(FILE *f, struct nodeElm startIndex, struct nodeElm pp[], struct startEnd point, double coordinates[], struct geometry geo[], int TYPH)
+
+/*--要素生成-----------------------------------------------*/
+void generate_beam(FILE *f, struct increment pp, struct startEnd point, struct nodeElm startIndex, struct geometry geo[], int typb)
 {
-    int cnt;
+    int dir;
+    for(int i = 0; i < XYZ; i++)
+    {
+        if(point.end[i] != point.start[i])
+        {
+            dir = i;
+            break;
+        }
+    }
+    //節点定義
+    plot_node(f, startIndex.node, point, geo, pp.node);
+    //要素定義
+    print_BEAM(f, startIndex.elm, startIndex.node, pp.node[dir], typb);
+    print_COPYELM(f, startIndex.elm, 0, 0, 1, pp.node[dir], point.end[dir] - point.start[dir] - 1);
+}
+
+void generate_quad(FILE *f, struct increment pp, struct startEnd point, struct nodeElm startIndex, struct geometry geo[], int typq)
+{
+    int dir1 = 0, dir2 = 1;
+    for(int i = 0; i < 2; i++)
+    {
+        if(point.end[i] == point.start[i])
+        {
+            if(i < 1)
+            {
+                dir1++;
+            }
+            dir2++;
+            break;
+        }
+    }
+    //節点定義
+    plot_node(f, startIndex.node, point, geo, pp.node);
+    //要素定義
+    print_QUAD(f, startIndex.elm, startIndex.node, pp.node, dir1, dir2, typq);
+    print_COPYELM(f, startIndex.elm, 0, 0, pp.elm[dir1], pp.node[dir1], point.end[dir1] - point.start[dir1] - 1);
+    print_COPYELM(f, startIndex.elm, startIndex.elm + (point.end[dir1] - point.start[dir1] - 1) * pp.elm[dir1], pp.elm[dir1], pp.elm[dir2], pp.node[dir2], point.end[dir2] - point.start[dir2] - 1);
+}
+
+struct nodeElm generate_hexa(FILE *f, struct nodeElm startIndex, struct increment pp, struct startEnd point, struct geometry geo[], int TYPH)
+{
     int delt;
     struct nodeElm index;
     struct nodeElm returnIndex;
     index.node = startIndex.node;
     index.elm  = startIndex.elm;
     //節点定義
-    print_NODE(f, index.node, coordinates);
-    //節点コピー
-    //x
-    for(int i = point.start.x; i < point.end.x; i += cnt)
-    {
-        cnt = count_consecutive(i, point.end.x, geo[0].mesh.length);
-        returnIndex.node = print_COPYNODE(f, index.node, 0, 0, geo[0].mesh.length[i], pp[0].node, cnt, 0);
-        index.node += cnt * pp[0].node;
-    }
-    //y
-    delt = index.node - startIndex.node;
-    index.node = startIndex.node;
-    for(int i = point.start.y; i < point.end.y; i += cnt)
-    {
-        cnt = count_consecutive(i, point.end.y, geo[1].mesh.length);
-        returnIndex.node = print_COPYNODE(f, index.node, index.node + delt, pp[0].node, geo[1].mesh.length[i], pp[1].node, cnt, 1);
-        index.node += cnt * pp[1].node;
-    }
-    //z
-    for(int j = 0; j <= point.end.y - point.start.y;j++)
-    {
-        index.node = startIndex.node;
-        for(int i = point.start.z; i < point.end.z; i += cnt)
-        {
-            cnt = count_consecutive(i, point.end.z, geo[2].mesh.length);
-            returnIndex.node = print_COPYNODE(f, index.node + pp[1].node * j, index.node + delt + pp[1].node * j, pp[0].node, geo[2].mesh.length[i], pp[2].node, cnt, 2);
-            index.node += cnt * pp[2].node;
-        }
-    }
+    returnIndex.node = plot_node(f, startIndex.node, point, geo, pp.node);
     fprintf(f, "\n");
     //要素定義
-    int ppNode[3];
-    ppNode[0] = pp[0].node;
-    ppNode[1] = pp[1].node;
-    ppNode[2] = pp[2].node;
-    print_HEXA(f, startIndex.elm, startIndex.node, ppNode, TYPH);
+    print_HEXA(f, startIndex.elm, startIndex.node, pp.node, TYPH);
     //要素コピー
     //x
-    returnIndex.elm = print_COPYELM(f, index.elm, 0, 0, pp[0].elm, pp[0].node, point.end.x - point.start.x - 1);
+    returnIndex.elm = print_COPYELM(f, index.elm, 0, 0, pp.elm[0], pp.node[0], point.end[0] - point.start[0] - 1);
     //y
-    delt = (point.end.x - point.start.x - 1) * pp[0].elm;
-    returnIndex.elm = print_COPYELM(f, index.elm, index.elm + delt, pp[0].elm, pp[1].elm, pp[1].node, point.end.y - point.start.y - 1);
+    delt = (point.end[0] - point.start[0] - 1) * pp.elm[0];
+    returnIndex.elm = print_COPYELM(f, index.elm, index.elm + delt, pp.elm[0], pp.elm[1], pp.node[1], point.end[1] - point.start[1] - 1);
     //z
-    for(int i = 0; i < point.end.y - point.start.y; i++)
+    for(int i = 0; i < point.end[1] - point.start[1]; i++)
     {
-        returnIndex.elm = print_COPYELM(f, index.elm + pp[1].elm * i, index.elm + delt + pp[1].elm * i, pp[0].elm, pp[2].elm, pp[2].node, point.end.z - point.start.z - 1);
+        returnIndex.elm = print_COPYELM(f, index.elm + pp.elm[1] * i, index.elm + delt + pp.elm[1] * i, pp.elm[0], pp.elm[2], pp.node[2], point.end[2] - point.start[2] - 1);
     }
     return returnIndex;
 }
 
-void generate_line(FILE *f, int elmIndex, int hexaNodeIndex, int beamNodeIndex, int node_pp_z, int set)
+void generate_line(FILE *f, int elmIndex, int hexaNodeIndex, int beamNodeIndex, int nodePp, int set)
 {
     const int elmPPz = 1;
     int index = elmIndex;
-    print_LINE(f, index, hexaNodeIndex, beamNodeIndex, node_pp_z);
-    print_COPYELM(f, elmIndex, 0, 0, elmPPz, node_pp_z, set);
+    print_LINE(f, index, hexaNodeIndex, beamNodeIndex, nodePp);
+    print_COPYELM(f, elmIndex, 0, 0, elmPPz, nodePp, set);
 }
 
-struct nodeElm add_reber(FILE *f, struct nodeElm pp[], struct modelsize rcs, struct geometry modelGeometry[], struct nodeElm startIndex)
+struct nodeElm add_reber(FILE *f, struct increment pp, struct modelsize rcs, struct geometry geo[], struct nodeElm startIndex)
 {
-    const int dir = 2; //z方向
+    const int dir = 2;
+    int typb = 1;
+    int rebarNum, beamLineDelt, concreteStartNode;
     struct nodeElm index;
     struct startEnd point;
-    double coordinates[3];
-
-    int concreteStartNode;
-
-    int elmNum = modelGeometry[2].boundary[4] - modelGeometry[2].boundary[1];
+    index  = startIndex;
     for(int i = 0; i < REBAR_MAX; i++)
     {
-        if(rcs.rebar[i].x < 0)
+        if(rcs.rebar[i].cordi[0] < 0)
         {
-            elmNum *= i;
-            elmNum = next_index(elmNum) - 1;
+            rebarNum = i;
             break;
         }
     }
-
+    beamLineDelt = next_index((geo[2].boundary[4] - geo[2].boundary[1]) * rebarNum);
     fprintf(f, "\n----REBAR----");
-    index.elm  = startIndex.elm;
-    for(int j = 0; j < REBAR_MAX; j++)
+    for(int j = 0; j < rebarNum; j++)
     {
-        if(rcs.rebar[j].x < 0)
-        {
-            break;
-        }
         index.node = startIndex.node + j;
-        int xIndex = coordinate_to_point(rcs.rebar[j].x, modelGeometry[0].mesh.length) - modelGeometry[0].boundary[2];
-        int yIndex = coordinate_to_point(rcs.rebar[j].y, modelGeometry[1].mesh.length) - modelGeometry[1].boundary[0];
-        if(coordinate_to_point(rcs.rebar[j].x, modelGeometry[0].mesh.length) > modelGeometry[0].boundary[3])
-        {
+        int xIndex = coordinate_to_point(rcs.rebar[j].cordi[0], geo[0].mesh.length) - geo[0].boundary[2];
+        int yIndex = coordinate_to_point(rcs.rebar[j].cordi[1], geo[1].mesh.length) - geo[1].boundary[0];
+        if(coordinate_to_point(rcs.rebar[j].cordi[0], geo[0].mesh.length) > geo[0].boundary[3])
             xIndex++;
-        }
-        int concreteAddNumber = pp[0].node * xIndex + pp[1].node * yIndex;
+        int concreteAddNumber = pp.node[0] * xIndex + pp.node[1] * yIndex;
 
         fprintf(f, "\n----\n");
-        coordinates[0] = rcs.rebar[j].x;
-        coordinates[1] = rcs.rebar[j].y;
+        for(int i = 0; i < 2; i++)
+        {
+            point.start[i] = coordinate_to_point(rcs.rebar[j].cordi[i], geo[i].mesh.length);
+            point.end  [i] = coordinate_to_point(rcs.rebar[j].cordi[i], geo[i].mesh.length);
+        }
         for(int i = 1; i < 4; i++)
         {
-
-            if(rcs.rebar[i].x < 0)
-            {
-                break;
-            }
-            point.start.z = modelGeometry[dir].boundary[i];
-            point.end.z   = modelGeometry[dir].boundary[i + 1];
-            coordinates[dir] = point_to_coordinate(modelGeometry[dir].boundary[i], modelGeometry[dir].mesh.length);
-            generate_beam(f, pp, coordinates, point, index, modelGeometry[dir].mesh.length, dir);
-
-
-            concreteStartNode = (1 + (modelGeometry[2].boundary[i] + i) * pp[2].node) + concreteAddNumber;
-            generate_line(f, index.elm + elmNum, concreteStartNode, index.node, pp[2].node, modelGeometry[dir].boundary[i + 1] - modelGeometry[dir].boundary[i] - 1);
-            concreteStartNode += pp[dir].node   * (modelGeometry[dir].boundary[i + 1] - modelGeometry[dir].boundary[i] + 1);
-            index.node += pp[dir].node   * (modelGeometry[dir].boundary[i + 1] - modelGeometry[dir].boundary[i] + 1);
-            index.elm  += 1/*1づつ増える*/* (modelGeometry[dir].boundary[i + 1] - modelGeometry[dir].boundary[i]);
+            point.start[2]   = geo[2].boundary[i];
+            point.end  [2]   = geo[2].boundary[i + 1];
+            generate_beam(f, pp, point, index, geo, typb);
+            concreteStartNode = (1 + (geo[2].boundary[i] + i) * pp.node[2]) + concreteAddNumber;
+            generate_line(f, index.elm + beamLineDelt, concreteStartNode, index.node, pp.node[2], geo[dir].boundary[i + 1] - geo[dir].boundary[i] - 1);
+            concreteStartNode += pp.node[dir]   * (geo[dir].boundary[i + 1] - geo[dir].boundary[i] + 1);
+            index.node += pp.node[dir]   * (geo[dir].boundary[i + 1] - geo[dir].boundary[i] + 1);
+            index.elm  += geo[dir].boundary[i + 1] - geo[dir].boundary[i];
         }
-
     }
-    index.elm  += elmNum;
+    index.elm  += beamLineDelt;
     return index;
 }
 
-struct nodeElm add_concrete(FILE *f, struct nodeElm startIndex, struct nodeElm pp[], struct geometry modelGeometry[])
+struct nodeElm add_concrete(FILE *f, struct nodeElm startIndex, struct increment pp, struct geometry geo[])
 {
     int typh[5] = {1, 2, 3, 2, 1};
-    double coordinates[3];
     struct nodeElm index;
     struct nodeElm returnIndex;
     struct startEnd point;
-    index.node = startIndex.node;
-    index.elm = startIndex.elm;
+    index = startIndex;
 
+    point.start[1] = geo[1].boundary[0];
+    point.end  [1] = geo[1].boundary[2];
     for(int j = 0; j < 5; j++)
     {
         fprintf(f, "\n----TYPH %1d----", typh[j]);
-        for(int i = 0; i < 2; i++)
+        point.start[2] = geo[2].boundary[j];
+        point.end  [2] = geo[2].boundary[j + 1];
+        for(int i = 2; i < 4; i++)
         {
             fprintf(f, "\n----\n");
-            point.start.x = modelGeometry[0].boundary[2 + i];
-            point.start.y = modelGeometry[1].boundary[0];
-            point.start.z = modelGeometry[2].boundary[0 + j];
-            point.end.x   = modelGeometry[0].boundary[3 + i];
-            point.end.y   = modelGeometry[1].boundary[2];
-            point.end.z   = modelGeometry[2].boundary[1 + j];
-            
-            coordinates[0] = point_to_coordinate(modelGeometry[0].boundary[2 + i], modelGeometry[0].mesh.length);
-            coordinates[1] = point_to_coordinate(modelGeometry[1].boundary[0], modelGeometry[1].mesh.length);
-            coordinates[2] = point_to_coordinate(modelGeometry[2].boundary[0 + j], modelGeometry[2].mesh.length);
-            returnIndex = generate_hexa(f, index, pp, point, coordinates, modelGeometry, typh[j]);
-            index.node += (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] + 1) * pp[0].node;
-            index.elm  += (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2])     * pp[0].elm;
+            point.start[0] = geo[0].boundary[i];
+            point.end  [0] = geo[0].boundary[i + 1];
+            returnIndex = generate_hexa(f, index, pp, point, geo, typh[j]);
+            index.node += (geo[0].boundary[i + 1] - geo[0].boundary[i] + 1) * pp.node[0];
+            index.elm  += (geo[0].boundary[i + 1] - geo[0].boundary[i])     * pp.elm [0];
         }
-        index.node = startIndex.node + (modelGeometry[2].boundary[j + 1] + j + 1) * pp[2].node;
-        index.elm  = startIndex.elm  +  modelGeometry[2].boundary[j + 1]          * pp[2].elm;
+        index.node = startIndex.node + (geo[2].boundary[j + 1] + j + 1) * pp.node[2];
+        index.elm  = startIndex.elm  +  geo[2].boundary[j + 1]          * pp.elm [2];
     }
     return returnIndex;
 }
 
-struct nodeElm quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry modelGeometry[], struct nodeElm pp[], struct modelsize rcs, int startNode)
+struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry geo[], struct increment pp, struct modelsize rcs, int startNode)
 {
     int cnt = 0;
     double cordi[XYZ];
     int filmIndex;
     struct nodeElm index;
-    int pp_node[3];
-    for(int i = 0; i < 3; i++)
-    {
-        pp_node[i] = pp[i].node;
-    }
-    int pp_elm[3];
-    pp_elm[0] = 1;
-    pp_elm[1] = pp[1].elm + 4;
-    pp_elm[2] = pp_elm[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2);
+    int ppElm[3];
+    ppElm[0] = 1;
+    ppElm[1] = pp.elm[1] + 4;
+    ppElm[2] = ppElm[1] * (geo[1].boundary[2] - geo[1].boundary[0] + 2);
 
-    int filmStart = startIndex.elm + (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 3) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2);
+    int filmStart = startIndex.elm + (geo[0].boundary[4] - geo[0].boundary[2] + 3) * (geo[1].boundary[2] - geo[1].boundary[0] + 2) * (geo[2].boundary[3] - geo[2].boundary[2] + 2);
     filmStart = next_index(filmStart);
 
+    printf("filmstart -> %d\n", filmStart);
     index = startIndex;
     int startIndexNode = startIndex.node;
-    const int concreteSteelDelt = startIndex.node - (startNode + (modelGeometry[2].boundary[2] + 2) * pp[2].node);
+    const int concreteSteelDelt = startIndex.node - (startNode + (geo[2].boundary[2] + 2) * pp.node[2]);
     fprintf(f, "\n----COLUMN QUAD----\n");
     //x直交面
     fprintf(f, "\n----x\n");
     for(int j = 2; j < 5; j++)
     {
         index.node = startIndexNode;
-        cordi[0] = point_to_coordinate(modelGeometry[0].boundary[j], modelGeometry[0].mesh.length);
-        cordi[1] = point_to_coordinate(modelGeometry[1].boundary[0], modelGeometry[1].mesh.length);
-        cordi[2] = point_to_coordinate(modelGeometry[2].boundary[2], modelGeometry[2].mesh.length);
+        cordi[0] = point_to_coordinate(geo[0].boundary[j], geo[0].mesh.length);
+        cordi[1] = point_to_coordinate(geo[1].boundary[0], geo[1].mesh.length);
+        cordi[2] = point_to_coordinate(geo[2].boundary[2], geo[2].mesh.length);
         print_NODE(f, index.node, cordi);
-        for(int i = modelGeometry[1].boundary[0]; i < modelGeometry[1].boundary[2]; i += cnt)
+        for(int i = geo[1].boundary[0]; i < geo[1].boundary[2]; i += cnt)
         {
-            cnt = count_consecutive(i, modelGeometry[1].boundary[2], modelGeometry[1].mesh.length);
-            print_COPYNODE(f, index.node, 0, 0, modelGeometry[1].mesh.length[i], pp[1].node, cnt, 1);
-            index.node += cnt * pp[1].node;
+            cnt = count_consecutive(i, geo[1].boundary[2], geo[1].mesh.length);
+            print_COPYNODE(f, index.node, 0, 0, geo[1].mesh.length[i], pp.node[1], cnt, 1);
+            index.node += cnt * pp.node[1];
         }
         int delt = index.node - startIndexNode;
         index.node = startIndexNode;
-        for(int i = modelGeometry[2].boundary[2], cnt = 0; i < modelGeometry[2].boundary[3]; i += cnt)
+        for(int i = geo[2].boundary[2], cnt = 0; i < geo[2].boundary[3]; i += cnt)
         {
-            cnt = count_consecutive(i, modelGeometry[2].boundary[3], modelGeometry[2].mesh.length);
-            print_COPYNODE(f, index.node, index.node + delt, pp[1].node, modelGeometry[2].mesh.length[i], pp[2].node, cnt, 2);
-            index.node += cnt * pp[2].node;
+            cnt = count_consecutive(i, geo[2].boundary[3], geo[2].mesh.length);
+            print_COPYNODE(f, index.node, index.node + delt, pp.node[1], geo[2].mesh.length[i], pp.node[2], cnt, 2);
+            index.node += cnt * pp.node[2];
         }
-        startIndexNode += (modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j]) * pp[0].node;
+        startIndexNode += (geo[0].boundary[j + 1] - geo[0].boundary[j]) * pp.node[0];
     }
     //四辺形要素
     index = startIndex;
-    index.elm += pp_elm[1] + pp_elm[2];
+    index.elm += ppElm[1] + ppElm[2];
     for(int i = 2; i < 5; i++)
     {
-        print_QUAD(f, index.elm, index.node, pp_node, 1, 2, 1);
-        print_COPYELM(f, index.elm, 0, 0, pp_elm[1], pp[1].node, modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1);
-        print_COPYELM(f, index.elm, index.elm + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1) * pp_elm[1], pp_elm[1], pp_elm[2], pp[2].node, modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-        index.node += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i]) * pp[0].node;
-        index.elm += pp_elm[0] * (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] + 1); 
+        print_QUAD(f, index.elm, index.node, pp.node, 1, 2, 1);
+        print_COPYELM(f, index.elm, 0, 0, ppElm[1], pp.node[1], geo[1].boundary[2] - geo[1].boundary[0] - 1);
+        print_COPYELM(f, index.elm, index.elm + (geo[1].boundary[2] - geo[1].boundary[0] - 1) * ppElm[1], ppElm[1], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+        index.node += (geo[0].boundary[i + 1] - geo[0].boundary[i]) * pp.node[0];
+        index.elm += ppElm[0] * (geo[0].boundary[i + 1] - geo[0].boundary[i] + 1); 
     }
     //film要素
     fprintf(f, "\n----\n");
-    filmIndex = filmStart + pp_elm[1] + 2 * pp_elm[2];
+    filmIndex = filmStart + ppElm[1] + 2 * ppElm[2];
     index = startIndex;
     int delt = concreteSteelDelt;
     for(int i = 0; i < 2; i++)
     {
-        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 2, 1, 1);
-        print_COPYELM(f, filmIndex, 0, 0, pp_elm[1], pp_node[1], modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1);
-        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1) * pp_elm[1], pp_elm[1], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-        filmIndex  += modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] + 1;
-        index.node += modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]; 
-        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 1, 2, 1);
-        print_COPYELM(f, filmIndex, 0, 0, pp_elm[1], pp_node[1], modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1);
-        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] - 1) * pp_elm[1], pp_elm[1], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-        filmIndex += pp_elm[0];
-        delt -= pp_node[0];
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp.node, 2, 1, 1);
+        print_COPYELM(f, filmIndex, 0, 0, ppElm[1], pp.node[1], geo[1].boundary[2] - geo[1].boundary[0] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (geo[1].boundary[2] - geo[1].boundary[0] - 1) * ppElm[1], ppElm[1], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+        filmIndex  += geo[0].boundary[3] - geo[0].boundary[2] + 1;
+        index.node += geo[0].boundary[3] - geo[0].boundary[2]; 
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp.node, 1, 2, 1);
+        print_COPYELM(f, filmIndex, 0, 0, ppElm[1], pp.node[1], geo[1].boundary[2] - geo[1].boundary[0] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (geo[1].boundary[2] - geo[1].boundary[0] - 1) * ppElm[1], ppElm[1], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+        filmIndex += ppElm[0];
+        delt -= pp.node[0];
     }
 
     //y直交面
@@ -742,111 +779,113 @@ struct nodeElm quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry 
     {
         for(int j = 2; j < 4; j++)
         {
-            for(int i = modelGeometry[0].boundary[j], cnt = 0; i < modelGeometry[0].boundary[j + 1] - 1; i += cnt)
+            for(int i = geo[0].boundary[j], cnt = 0; i < geo[0].boundary[j + 1] - 1; i += cnt)
             {
-                cnt = count_consecutive(i, modelGeometry[0].boundary[j + 1] - 1, modelGeometry[0].mesh.length);
-                print_COPYNODE(f, index.node, index.node + (modelGeometry[2].boundary[j + 1] - modelGeometry[2].boundary[j]) * pp[2].node, pp[2].node, modelGeometry[0].mesh.length[i], pp[0].node, cnt, 0);
-                index.node += cnt * pp[0].node;
+                cnt = count_consecutive(i, geo[0].boundary[j + 1] - 1, geo[0].mesh.length);
+                print_COPYNODE(f, index.node, index.node + (geo[2].boundary[j + 1] - geo[2].boundary[j]) * pp.node[2], pp.node[2], geo[0].mesh.length[i], pp.node[0], cnt, 0);
+                index.node += cnt * pp.node[0];
             }
-            index.node += pp[0].node;
+            index.node += pp.node[0];
         }
-        index.node = startIndex.node + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp[1].node;
+        index.node = startIndex.node + (geo[1].boundary[2] - geo[1].boundary[0]) * pp.node[1];
     }
     //四辺形要素
     index = startIndex;
-    index.elm += pp_elm[0] + pp_elm[2];
+    index.elm += ppElm[0] + ppElm[2];
     for(int k = 0; k < 2; k++)
     {
         for(int i = 2; i < 4; i++)
         {
-            print_QUAD(f, index.elm, index.node, pp_node, 0, 2, 1);
-            print_COPYELM(f, index.elm, 0, 0, pp_elm[0], pp[0].node, modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1);
-            print_COPYELM(f, index.elm, index.elm + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1) * pp_elm[0], pp_elm[0], pp_elm[2], pp[2].node, modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-            index.node += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i]) * pp[0].node;
-            index.elm  += pp_elm[0] * (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] + 1); 
+            print_QUAD(f, index.elm, index.node, pp.node, 0, 2, 1);
+            print_COPYELM(f, index.elm, 0, 0, ppElm[0], pp.node[0], geo[0].boundary[3] - geo[0].boundary[2] - 1);
+            print_COPYELM(f, index.elm, index.elm + (geo[0].boundary[3] - geo[0].boundary[2] - 1) * ppElm[0], ppElm[0], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+            index.node += (geo[0].boundary[i + 1] - geo[0].boundary[i]) * pp.node[0];
+            index.elm  += ppElm[0] * (geo[0].boundary[i + 1] - geo[0].boundary[i] + 1); 
         }
-        index.node = startIndex.node + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp_node[1];
-        index.elm  = startIndex.elm + pp_elm[0] + pp_elm[2] + (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * pp_elm[1];
+        index.node = startIndex.node + (geo[1].boundary[2] - geo[1].boundary[0]) * pp.node[1];
+        index.elm  = startIndex.elm + ppElm[0] + ppElm[2] + (geo[1].boundary[2] - geo[1].boundary[0] + 1) * ppElm[1];
     }
     //film要素
     fprintf(f, "\n----\n");
-    filmIndex = filmStart + pp_elm[0] + 2 * pp_elm[2];
+    filmIndex = filmStart + ppElm[0] + 2 * ppElm[2];
     index = startIndex;
     delt = concreteSteelDelt;
     for(int i = 0; i < 2; i++)
     {
-        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 0, 2, 1);
-        print_COPYELM(f, filmIndex, 0, 0, pp_elm[0], pp_node[0], modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1);
-        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1) * pp_elm[0], pp_elm[0], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-        filmIndex  += (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * pp_elm[1];
-        index.node += (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]) * pp_node[1]; 
-        print_FILM(f, filmIndex, index.node - delt, index.node, pp_node, 2, 0, 1);
-        print_COPYELM(f, filmIndex, 0, 0, pp_elm[0], pp_node[0], modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1);
-        print_COPYELM(f, filmIndex, filmIndex + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] - 1) * pp_elm[0], pp_elm[0], pp_elm[2], pp_node[2], modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] - 1);
-        filmIndex  = filmStart + pp_elm[0] + pp_elm[2] + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2] + 1) * pp_elm[0];
-        index.node = startIndex.node + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]) * pp_elm[0];
-        delt -= pp_node[0];
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp.node, 0, 2, 1);
+        print_COPYELM(f, filmIndex, 0, 0, ppElm[0], pp.node[0], geo[0].boundary[3] - geo[0].boundary[2] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (geo[0].boundary[3] - geo[0].boundary[2] - 1) * ppElm[0], ppElm[0], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+        filmIndex  += (geo[1].boundary[2] - geo[1].boundary[0] + 1) * ppElm[1];
+        index.node += (geo[1].boundary[2] - geo[1].boundary[0]) * pp.node[1]; 
+        print_FILM(f, filmIndex, index.node - delt, index.node, pp.node, 2, 0, 1);
+        print_COPYELM(f, filmIndex, 0, 0, ppElm[0], pp.node[0], geo[0].boundary[3] - geo[0].boundary[2] - 1);
+        print_COPYELM(f, filmIndex, filmIndex + (geo[0].boundary[3] - geo[0].boundary[2] - 1) * ppElm[0], ppElm[0], ppElm[2], pp.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+        filmIndex  = filmStart + ppElm[0] + ppElm[2] + (geo[0].boundary[3] - geo[0].boundary[2] + 1) * ppElm[0];
+        index.node = startIndex.node + (geo[0].boundary[3] - geo[0].boundary[2]) * ppElm[0];
+        delt -= pp.node[0];
     }
 
     //z直交面
     fprintf(f, "\n----z\n");
-    for(int k = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length); k < modelGeometry[1].boundary[2]; k++)
+    for(int k = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length); k < geo[1].boundary[2]; k++)
     {
-        index.node = startIndex.node + k * pp[1].node;
+        index.node = startIndex.node + k * pp.node[1];
         for(int j = 2; j < 4; j++)
         {
-            for(int i = modelGeometry[0].boundary[j], cnt = 0; i < modelGeometry[0].boundary[j + 1] - 1; i += cnt)
+            for(int i = geo[0].boundary[j], cnt = 0; i < geo[0].boundary[j + 1] - 1; i += cnt)
             {
-                cnt = count_consecutive(i, modelGeometry[0].boundary[j + 1] - 1, modelGeometry[0].mesh.length);
+                cnt = count_consecutive(i, geo[0].boundary[j + 1] - 1, geo[0].mesh.length);
                 if(cnt == -1)
                 {
                     printf("[ERROR] quad_collumn\n");
-                    return ;
+                    index.elm  = -999;
+                    index.node = -999;
+                    return index;
                 }
-                print_COPYNODE(f, index.node, index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, modelGeometry[0].mesh.length[i], pp[0].node, cnt, 0);
-                index.node += cnt * pp[0].node;
+                print_COPYNODE(f, index.node, index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], geo[0].mesh.length[i], pp.node[0], cnt, 0);
+                index.node += cnt * pp.node[0];
             }
             index.node ++;
         }
     }
-    for(int j = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); j <= coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); j++)
+    for(int j = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, geo[0].mesh.length); j <= coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, geo[0].mesh.length); j++)
     {
-        if(j != modelGeometry[0].boundary[3])
+        if(j != geo[0].boundary[3])
         {
-            index.node = startIndex.node + (j - modelGeometry[0].boundary[2]) * pp[0].node;
-            for(int i = modelGeometry[1].boundary[0], cnt = 0; i < coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length) - 1; i += cnt)
+            index.node = startIndex.node + (j - geo[0].boundary[2]) * pp.node[0];
+            for(int i = geo[1].boundary[0], cnt = 0; i < coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length) - 1; i += cnt)
             {
-                cnt = count_consecutive(i, coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length) - 1, modelGeometry[1].mesh.length);
-                print_COPYNODE(f, index.node, index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, modelGeometry[1].mesh.length[i], pp[1].node, cnt, 1);
-                index.node += cnt * pp[1].node;
+                cnt = count_consecutive(i, coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length) - 1, geo[1].mesh.length);
+                print_COPYNODE(f, index.node, index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], geo[1].mesh.length[i], pp.node[1], cnt, 1);
+                index.node += cnt * pp.node[1];
             }
         }
     }
-    for(int j = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length); j < modelGeometry[1].boundary[2]; j++)
+    for(int j = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length); j < geo[1].boundary[2]; j++)
     {
-        index.node = startIndex.node + j * pp[1].node;
-        index.elm  = startIndex.elm  + 1 * pp_elm[0] + (j + 1) * pp_elm[1];
+        index.node = startIndex.node + j * pp.node[1];
+        index.elm  = startIndex.elm  + 1 * ppElm[0] + (j + 1) * ppElm[1];
         for(int i = 2; i < 4; i++)
         {
-            print_QUAD(f, index.elm, index.node, pp_node, 0, 1, 1);
-            print_COPYELM(f, index.elm, 0, 0, (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, 1);
-            print_COPYELM(f, index.elm, index.elm + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], pp_elm[0], pp[0].node, modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] - 1);
-            index.node += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i])     * pp[0].node;
-            index.elm  += (modelGeometry[0].boundary[i + 1] - modelGeometry[0].boundary[i] + 1) * pp_elm[0]; 
+            print_QUAD(f, index.elm, index.node, pp.node, 0, 1, 1);
+            print_COPYELM(f, index.elm, 0, 0, (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppElm[2], (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], 1);
+            print_COPYELM(f, index.elm, index.elm + (geo[2].boundary[3] -geo[2].boundary[2] + 1) * ppElm[2], (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppElm[2], ppElm[0], pp.node[0], geo[0].boundary[i + 1] - geo[0].boundary[i] - 1);
+            index.node += (geo[0].boundary[i + 1] - geo[0].boundary[i])     * pp.node[0];
+            index.elm  += (geo[0].boundary[i + 1] - geo[0].boundary[i] + 1) * ppElm[0]; 
         }
     }
-    for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i++)
+    for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, geo[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, geo[0].mesh.length); i++)
     {
 
-        index.node = startIndex.node + (i - modelGeometry[0].boundary[2]) * pp[0].node;
-        index.elm  = startIndex.elm  + (i - modelGeometry[0].boundary[2] + 1) * pp_elm[0] + 1 * pp_elm[1];
-        if(i >= modelGeometry[0].boundary[3])
+        index.node = startIndex.node + (i - geo[0].boundary[2]) * pp.node[0];
+        index.elm  = startIndex.elm  + (i - geo[0].boundary[2] + 1) * ppElm[0] + 1 * ppElm[1];
+        if(i >= geo[0].boundary[3])
         {
             index.elm++;
         }
-        print_QUAD(f, index.elm, index.node, pp_node, 0, 1, 1);
-        print_COPYELM(f, index.elm, 0, 0, (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp[2].node, 1);
-        print_COPYELM(f, index.elm, index.elm + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_elm[2], pp_elm[1], pp[1].node, coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, modelGeometry[1].mesh.length) - 1);
+        print_QUAD(f, index.elm, index.node, pp.node, 0, 1, 1);
+        print_COPYELM(f, index.elm, 0, 0, (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppElm[2], (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], 1);
+        print_COPYELM(f, index.elm, index.elm + (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppElm[2], (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppElm[2], ppElm[1], pp.node[1], coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length) - 1);
     }
     //film要素
     fprintf(f, "\n----\n");
@@ -854,47 +893,106 @@ struct nodeElm quad_collumn(FILE *f, struct nodeElm startIndex, struct geometry 
     delt = concreteSteelDelt;
     for(int j = 2; j < 4; j++)
     {
-        for(int i = modelGeometry[1].boundary[1]; i < modelGeometry[1].boundary[2]; i++)
+        for(int i = geo[1].boundary[1]; i < geo[1].boundary[2]; i++)
         {
-            index.node = (modelGeometry[0].boundary[j] - modelGeometry[0].boundary[2]) * pp_node[0] + startIndex.node + i * pp_node[1];
-            filmIndex = filmStart + pp_elm[0] + (i + 1) * pp_elm[1] + (modelGeometry[0].boundary[j] - modelGeometry[0].boundary[2]) * pp_elm[0];
+            index.node = (geo[0].boundary[j] - geo[0].boundary[2]) * pp.node[0] + startIndex.node + i * pp.node[1];
+            filmIndex = filmStart + ppElm[0] + (i + 1) * ppElm[1] + (geo[0].boundary[j] - geo[0].boundary[2]) * ppElm[0];
             if(j >= 3)
             {
-                filmIndex  += pp_elm[0];
-                delt -= pp_node[0];
+                filmIndex  += ppElm[0];
+                delt -= pp.node[0];
             }
-            print_FILM(f, filmIndex, index.node - delt - pp_node[2], index.node, pp_node, 1, 0, 1);
-            print_FILM(f, filmIndex + pp_elm[2], index.node - delt, index.node, pp_node, 0, 1, 1);
-            print_COPYELM(f, filmIndex, filmIndex + pp_elm[2], pp_elm[2], pp_elm[0], pp_node[0], modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j] - 1);
+            print_FILM(f, filmIndex, index.node - delt - pp.node[2], index.node, pp.node, 1, 0, 1);
+            print_FILM(f, filmIndex + ppElm[2], index.node - delt, index.node, pp.node, 0, 1, 1);
+            print_COPYELM(f, filmIndex, filmIndex + ppElm[2], ppElm[2], ppElm[0], pp.node[0], geo[0].boundary[j + 1] - geo[0].boundary[j] - 1);
             
-            print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 0, 1, 1);
-            print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 1, 0, 1);
-            print_COPYELM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], pp_elm[2], pp_elm[0], pp_node[0], modelGeometry[0].boundary[j + 1] - modelGeometry[0].boundary[j] - 1);
+            print_FILM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 2) * ppElm[2], index.node - delt + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node, 0, 1, 1);
+            print_FILM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], index.node - delt + (geo[2].boundary[3] - geo[2].boundary[2] + 1) * pp.node[2], index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node, 1, 0, 1);
+            print_COPYELM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 2) * ppElm[2], filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], ppElm[2], ppElm[0], pp.node[0], geo[0].boundary[j + 1] - geo[0].boundary[j] - 1);
         }
     }
     index = startIndex;
     delt = concreteSteelDelt;
-    for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, modelGeometry[0].mesh.length); i++)
+    for(int i = coordinate_to_point((rcs.beam.span - rcs.xbeam.width) / 2, geo[0].mesh.length); i < coordinate_to_point((rcs.beam.span + rcs.xbeam.width) / 2, geo[0].mesh.length); i++)
     {
-        index.node = startIndex.node + (i - modelGeometry[0].boundary[2]) * pp_node[0];
-        filmIndex = filmStart + (i - modelGeometry[0].boundary[2] + 1) * pp_elm[0] + pp_elm[1];
-        if(i >= modelGeometry[0].boundary[3])
+        index.node = startIndex.node + (i - geo[0].boundary[2]) * pp.node[0];
+        filmIndex = filmStart + (i - geo[0].boundary[2] + 1) * ppElm[0] + ppElm[1];
+        if(i >= geo[0].boundary[3])
         {
-            delt -= pp_node[0];
+            delt -= pp.node[0];
         }
-        print_FILM(f, filmIndex, index.node - delt - pp_node[2], index.node, pp_node, 0, 1, 1);
-        print_FILM(f, filmIndex + pp_elm[2], index.node - delt, index.node, pp_node, 1, 0, 1);
-        print_COPYELM(f, filmIndex, filmIndex + pp_elm[2], pp_elm[2], pp_elm[1], pp_node[1], modelGeometry[1].boundary[1] - 1);
+        print_FILM(f, filmIndex, index.node - delt - pp.node[2], index.node, pp.node, 0, 1, 1);
+        print_FILM(f, filmIndex + ppElm[2], index.node - delt, index.node, pp.node, 1, 0, 1);
+        print_COPYELM(f, filmIndex, filmIndex + ppElm[2], ppElm[2], ppElm[1], pp.node[1], geo[1].boundary[1] - 1);
 
-        print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 0, 1, 1);
-        print_FILM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], index.node - delt + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1) * pp_node[2], index.node + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * pp_node[2], pp_node, 1, 0, 1);
-        print_COPYELM(f, filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 2) * pp_elm[2], filmIndex + (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 3) * pp_elm[2], pp_elm[2], pp_elm[1], pp_node[1], modelGeometry[1].boundary[1] - 1);
+        print_FILM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 2) * ppElm[2], index.node - delt + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node, 0, 1, 1);
+        print_FILM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], index.node - delt + (geo[2].boundary[3] - geo[2].boundary[2] + 1) * pp.node[2], index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node, 1, 0, 1);
+        print_COPYELM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 2) * ppElm[2], filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], ppElm[2], ppElm[1], pp.node[1], geo[1].boundary[1] - 1);
     }
     index.node  = startIndex.node;
-    index.node += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 1) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1);
+    index.node += (geo[0].boundary[4] - geo[0].boundary[2] + 1) * (geo[1].boundary[2] - geo[1].boundary[0] + 1) * (geo[2].boundary[3] - geo[2].boundary[2] + 1);
     index.elm   = filmStart;
-    index.elm  += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 4) * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2) * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 4);
+    index.elm  += (geo[0].boundary[4] - geo[0].boundary[2] + 4) * (geo[1].boundary[2] - geo[1].boundary[0] + 2) * (geo[2].boundary[3] - geo[2].boundary[2] + 4);
     return index;
+}
+
+void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, struct geometry geo[])
+{
+    const int typh = 1;
+    struct nodeElm  index;
+    struct startEnd point;
+    point.start[1] = geo[1].boundary[1];
+    point.end  [1] = geo[1].boundary[2];
+    point.start[2] = geo[2].boundary[2];
+    point.end  [2] = geo[2].boundary[3];
+    
+    fprintf(f, "\n----HEXA BEAM----\n");
+    for(int i = 0; i < 6; i += 5)
+    {
+        fprintf(f, "\n----\n");
+        index.node = startIndex.node + geo[0].boundary[i] * pp.node[0];
+        index.elm  = startIndex.elm  + geo[0].boundary[i] * pp.node[0] + pp.elm[2];
+        point.start[0] = geo[0].boundary[i];
+        point.end  [0] = geo[0].boundary[i + 1];
+        generate_hexa(f, index, pp, point, geo, typh);
+    }
+}
+
+void quad_beam(FILE *f, struct nodeElm startIndex, struct increment ppColumn, struct increment ppBeam, struct geometry geo[], int jointStartNode)
+{
+    const int typq = 1;
+    struct nodeElm  index;
+    struct startEnd point;
+
+    fprintf(f, "\n----QUAD BEAM----\n");
+
+    point.start[0] = geo[0].boundary[1] + 1;
+    point.end  [0] = geo[0].boundary[2] - 1;
+    point.start[1] = geo[1].boundary[1];
+    point.end  [1] = geo[1].boundary[2];
+    point.start[2] = geo[2].boundary[2];
+    point.end  [2] = geo[2].boundary[2];
+    index.node = startIndex.node + 2 * ppBeam.node[0];
+    index.elm  = startIndex.elm  + ppBeam.elm [0];
+    plot_node(f, index.node, point, geo, ppBeam.node);
+    index.node = startIndex.node + ppBeam.node[0];
+    print_QUAD(f, index.elm, index.node, ppBeam.node, 0, 1, typq);
+    if(geo[1].boundary[2] - geo[1].boundary[1] > 2)
+    {
+        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[1], ppBeam.node[1], geo[1].boundary[2] - geo[1].boundary[1] - 1);
+        print_COPYELM(f, index.elm, index.elm + (geo[1].boundary[2] - geo[1].boundary[1] - 1) * ppBeam.elm[1], ppBeam.elm[1], ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
+        index.node = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0];
+        index.elm  = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0];
+        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointStartNode + (geo[1].boundary[1]) * ppColumn.node[1], jointStartNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq);
+        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[1], ppBeam.node[1], geo[1].boundary[2] - geo[1].boundary[1] - 1);
+    }
+    else
+    {
+        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
+        index.node = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0];
+        index.elm  = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0];
+        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointStartNode + (geo[1].boundary[1]) * ppColumn.node[1], jointStartNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq);
+    }
 }
 
 void build_column()
@@ -916,7 +1014,6 @@ int main()
         film要素
 
         ---梁領域---
-        梁加力治具
         梁
 
         ---節点結合---
@@ -950,20 +1047,14 @@ int main()
     */
 
     int dir[3] = {'X', 'Y', 'Z'};
-
+    int jointStartNode;
     const int startNode = 1;
     const int startElm  = 1;
-
     struct modelsize rcs;
     struct geometry  modelGeometry[XYZ];
-    struct nodeElm pp[XYZ];
-    struct nodeElm index;
-
-    /*
-    int typq[1];
-    int typl[1];
-    int typf[1];
-    */
+    struct increment ppColumn;
+    struct increment ppBeam;
+    struct nodeElm   index;
 
     printf("\n[START]\n");
 
@@ -973,20 +1064,18 @@ int main()
         printf("[ERROR] input.txt cant open.\n");
         return 1;
     }
-
     for(int i = 0; i < 3; i++)
     {
         modelGeometry[i].mesh.number = load_mesh(fin, modelGeometry[i].mesh.length, dir[i]);
     }
     rcs = Model_Size_Load(fin);    
-
     fclose(fin);
 
     //データチェック
     printf("\n------------------[ DATE CHECK ]------------------\n\n");
     printf("non\n----\n");
 
-    //x, z方向は入力範囲が半分
+    //x, y, z方向は入力範囲が半分
     //yはハーフモデルのためそのまま
     symmetrical_input(&modelGeometry[0]);
     symmetrical_input(&modelGeometry[2]);
@@ -1003,6 +1092,22 @@ int main()
     //境界線情報表示
     console_boundary(modelGeometry);
 
+    //インクリメント
+    ppColumn.node[0] = 1;
+    ppColumn.node[1] = modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 2;
+    ppColumn.node[2] = ppColumn.node[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1);
+    ppColumn.elm [0] = 1;
+    ppColumn.elm [1] = modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2];
+    ppColumn.elm [2] = ppColumn.elm[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]);
+    console_increment(ppColumn);
+    ppBeam.node[0] = 1;
+    ppBeam.node[1] = modelGeometry[0].boundary[6] + 1;
+    ppBeam.node[2] = ppBeam.node[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[1] + 1);
+    ppBeam.elm [0] = 1;
+    ppBeam.elm [1] = modelGeometry[0].boundary[6];
+    ppBeam.elm [2] = ppBeam.elm[1] * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[1] + 1);
+    console_increment(ppBeam);
+
     //ファイルオープン
     FILE *fout = fopen(OUT_FILE_NAME,"w");
     if(fout == NULL)
@@ -1013,42 +1118,39 @@ int main()
 
     //雛形
     print_head_template(fout);    
-
-    /*--柱領域---------------------------------------------------------*/
     printf("\n------------------[ COLUMN ]------------------\n");
-    //インクリメント
-    pp[0].node = 1;
-    pp[1].node = modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 2;
-    pp[2].node = pp[1].node * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1);
-    pp[0].elm  = 1;
-    pp[1].elm  = modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2];
-    pp[2].elm  = pp[1].elm * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0]);
-    console_increment(pp);
 
     //六面体要素
     index.node = startNode;
     index.elm  = startElm;
     console_index(index, "concrete start");
-    index = add_concrete(fout, index, pp, modelGeometry);
-    //かぶり、内部コンクリート要素番号
+    index = add_concrete(fout, index, ppColumn, modelGeometry);
 
     //線材要素
     index.node  = next_index(index.node);
     index.elm   = next_index(index.elm);
     console_index(index, "rebar start");
-    index = add_reber(fout, pp, rcs, modelGeometry, index);
+    index = add_reber(fout, ppColumn, rcs, modelGeometry, index);
+    index.node  = next_index(index.node);
+    index.elm   = next_index(index.elm);
+    jointStartNode = index.node;
+    printf("joint -> %d\n", jointStartNode);
+
+    printf("\n------------------[ BEAM ]------------------\n");
+    //四辺形要素
+    console_index(index, "quad column start");
+    index = quad_joint(fout, index, modelGeometry, ppColumn, rcs, startNode);
     index.node  = next_index(index.node);
     index.elm   = next_index(index.elm);
 
-    //四辺形要素
-    console_index(index, "quad column start");
-    index = quad_collumn(fout, index, modelGeometry, pp, rcs, startNode);
-    console_index(index, "quad column end");
     //六面体要素
+    console_index(index, "hexa beam");
+    hexa_beam(fout, index, ppBeam, modelGeometry);
 
     //四辺形要素
-
-    //フィルム要素
+    quad_beam(fout, index, ppColumn, ppBeam, modelGeometry, jointStartNode);
+    
+    //かぶり、内部コンクリート要素番号
 
     print_tail_template(fout);
     fclose(fout);
