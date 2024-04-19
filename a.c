@@ -463,6 +463,16 @@ void print_join(FILE *f, int s1, int e1, int i1, int s2, int e2, int i2)
     fprintf(f, "JOIN :NODE  S(%5d)-E(%5d)-I(%5d)  WITH  S(%5d)-E(%5d)-I(%5d)\n", s1, e1, i1, s2, e2, i2);
 }
 
+void print_rest(FILE *f, int s, int e, int i, int rc, int inc, int set)
+{
+    fprintf(f, "REST :NODE  S(%5d)-E(%5d)-I(%5d)  RC=(%03d000) INC(%5d)-SET(%4d)\n", s, e, i, rc, inc, set);
+}
+
+void print_sub1(FILE *f, int s, int e, int i, int dir, int master, int mDir)
+{
+    fprintf(f, "SUB1 :NODE  S(%5d)-E(%5d)-I(%5d)-D(%1d)  M(%5d)-D(%1d)  F=1\n", s, e, i, dir, master, mDir);
+}
+
 /*COPYELMデータ書き込み*/
 int print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, int node_Inc, int set)
 {
@@ -1102,11 +1112,72 @@ void joint_nodes(FILE *f, int startNode, struct geometry geo[], struct modelsize
     }
 }
 
+void pin(FILE *f, int startNode, struct geometry geo[], int pp[])
+{
+    fprintf(f, "\n----\n");
+    int node = startNode;
+    int delt = (geo[1].boundary[2] - geo[1].boundary[1]) * pp[1];
+    print_rest(f, node, node + delt, pp[1], 1, pp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+    node += geo[0].boundary[6] * pp[0];
+    print_rest(f, node, node + delt, pp[1], 1, pp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+}
+
+void pin_roller(FILE *f, int startNode, struct loadNode load, struct geometry geo[], int pp[])
+{
+    int node = startNode;
+    int delt = (geo[1].boundary[2] - geo[1].boundary[0]) * pp[1];
+    for(int i = geo[0].boundary[2]; i <= geo[0].boundary[4]; i++)
+    {
+        node = startNode + (i - geo[0].boundary[2]) * pp[0];
+        if(i > geo[0].boundary[3])
+        {
+            node += pp[0];
+        }
+        if(i != geo[0].boundary[3])
+        {
+            print_sub1(f, node, node + delt, pp[1], 1, load.node1, 1);
+        }
+        else
+        {
+            print_sub1(f, node, node + delt - pp[1], pp[1], 1, load.node1, 1);
+        }
+    }
+    for(int i = geo[0].boundary[2]; i <= geo[0].boundary[4]; i++)
+    {
+        node = startNode + (i - geo[0].boundary[2]) * pp[0] + (geo[2].boundary[5] + 4) * pp[2];
+        if(i > geo[0].boundary[3])
+        {
+            node += pp[0];
+        }
+        if(i != geo[0].boundary[3])
+        {
+            print_sub1(f, node, node + delt, pp[1], 1, load.node2, 1);
+        }
+        else
+        {
+            print_sub1(f, node, node + delt - pp[1], pp[1], 1, load.node2, 1);
+        }
+    }
+}
+
+void cut_surface(FILE *f, struct geometry geo[], int columnStart, int jointStart, int beamStart, int columnPp[], int beamPp[])
+{
+    int column = columnStart + geo[1].boundary[2] * columnPp[1];
+    int beam   = beamStart   + (geo[1].boundary[2] - geo[1].boundary[1]) * beamPp[1];
+    //柱
+    print_rest(f, column, column + (geo[0].boundary[4] - geo[0].boundary[2] + 1) * columnPp[0], columnPp[0], 10, columnPp[2], geo[2].boundary[2] - geo[2].boundary[0] + 2);
+    column = columnStart + geo[1].boundary[2] * columnPp[1] + (geo[2].boundary[3] + 2) * columnPp[2];
+    print_rest(f, column, column + (geo[0].boundary[4] - geo[0].boundary[2] + 1) * columnPp[0], columnPp[0], 10, columnPp[2], geo[2].boundary[5] - geo[2].boundary[3] + 2);
+    print_rest(f, jointStart + geo[1].boundary[2] * columnPp[1], jointStart + geo[1].boundary[2] * columnPp[1] + (geo[0].boundary[4] - geo[0].boundary[2]) * columnPp[0], columnPp[0], 10, columnPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+    //梁
+    print_rest(f, beam, beam + (geo[0].boundary[2] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+    beam += (geo[0].boundary[4] + 1) * beamPp[0];
+    print_rest(f, beam, beam + (geo[0].boundary[6] - geo[0].boundary[4] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+}
+
 int main()
 {
     /*todo
-
-        節点要素番号を返す
         番号の表示
 
         ---要素タイプ---
@@ -1114,13 +1185,6 @@ int main()
         かぶりコンクリート
         鉄骨梁
         film要素
-
-        ---節点結合---
-        HOLD
-
-        ---境界条件---
-        節点自由度
-        節点強制変位（柱or梁）
 
         データチェック
     */
@@ -1146,7 +1210,7 @@ int main()
     */
 
     int dir[3] = {'X', 'Y', 'Z'};
-    int jointStartNode;
+    int jointStartNode, beamStartNode;
     const int startNode = 1;
     const int startElm  = 1;
     struct modelsize rcs;
@@ -1244,6 +1308,7 @@ int main()
     index = quad_joint(fout, index, modelGeometry, ppColumn, rcs, startNode);
     index.node  = next_index(index.node);
     index.elm   = next_index(index.elm);
+    beamStartNode = index.node;
 
     //六面体要素
     console_index(index, "hexa beam");
@@ -1255,6 +1320,10 @@ int main()
     //
     joint_nodes(fout, startNode, modelGeometry, rcs, ppColumn.node);
 
+    pin(fout, beamStartNode, modelGeometry, ppBeam.node);
+    pin_roller(fout, startNode, loadNode, modelGeometry, ppColumn.node);
+    cut_surface(fout, modelGeometry, startNode, jointStartNode, beamStartNode, ppColumn.node, ppBeam.node);
+    
     //かぶり、内部コンクリート要素番号
 
     print_tail_template(fout, loadNode);
