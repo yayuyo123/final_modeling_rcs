@@ -961,38 +961,81 @@ void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, struct g
 void quad_beam(FILE *f, struct nodeElm startIndex, struct increment ppColumn, struct increment ppBeam, struct geometry geo[], int jointStartNode)
 {
     const int typq = 1;
+    int jointNode = jointStartNode;
+    int quadDelt, jointDelt, elmDelt;
     struct nodeElm  index;
     struct startEnd point;
+    point.end  [1] = geo[1].boundary[2];
 
     fprintf(f, "\n----QUAD BEAM----\n");
+    //節点定義
+    for(int j = 1; j <= 4; j += 3) //x方向
+    {
+        point.start[0] = geo[0].boundary[j] + 1;
+        point.end  [0] = geo[0].boundary[j + 1] - 1;
+        for(int i = 2; i <= 3; i++) //z方向
+        {
+            point.start[1] = geo[1].boundary[1];
+            point.start[2] = geo[2].boundary[i];
+            point.end  [2] = geo[2].boundary[i];
+            index.node = startIndex.node + (geo[0].boundary[j] + 1) * ppBeam.node[0] + (geo[2].boundary[i] - geo[2].boundary[2]) * ppBeam.node[2];
+            plot_node(f, index.node, point, geo, ppBeam.node);
+        }
+        point.start[1] = geo[1].boundary[2];
+        point.start[2] = geo[2].boundary[2] + 1;
+        point.end  [2] = geo[2].boundary[3] - 1;
+        index.node = startIndex.node + (geo[0].boundary[j] + 1) * ppBeam.node[0] + (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.node[1] + ppBeam.node[2];
+        plot_node(f, index.node, point, geo, ppBeam.node);
+    }
+    //要素定義
+    //接合部分
+    quadDelt    = (geo[0].boundary[4] - geo[0].boundary[2] + 2) * ppBeam.node[0];
+    jointDelt   = (geo[0].boundary[4] - geo[0].boundary[2])     * ppColumn.node[0];
+    elmDelt     = (geo[0].boundary[4] - geo[0].boundary[2] + 1) * ppBeam.elm[0];
 
-    point.start[0] = geo[0].boundary[1] + 1;
-    point.end  [0] = geo[0].boundary[2] - 1;
-    point.start[1] = geo[1].boundary[1];
-    point.end  [1] = geo[1].boundary[2];
-    point.start[2] = geo[2].boundary[2];
-    point.end  [2] = geo[2].boundary[2];
-    index.node = startIndex.node + 2 * ppBeam.node[0];
-    index.elm  = startIndex.elm  + ppBeam.elm [0];
-    plot_node(f, index.node, point, geo, ppBeam.node);
-    index.node = startIndex.node + ppBeam.node[0];
-    print_QUAD(f, index.elm, index.node, ppBeam.node, 0, 1, typq);
-    if(geo[1].boundary[2] - geo[1].boundary[1] > 2)
+    index.node  = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0];
+    index.elm   = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0];
+    fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointNode + geo[1].boundary[1] * ppColumn.node[1], jointNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq); 
+    fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm + elmDelt, jointNode + geo[1].boundary[1] * ppColumn.node[1] + jointDelt, index.node + quadDelt, index.node + ppBeam.node[1] + quadDelt, jointNode + (geo[1].boundary[1] + 1) * ppColumn.node[1] + jointDelt, typq); 
+    index.node += (geo[2].boundary[3] - geo[2].boundary[2]) * ppBeam.node[2];
+    index.elm  += (geo[2].boundary[3] - geo[2].boundary[2] + 1) * ppBeam.elm[2];
+    jointNode  += (geo[2].boundary[3] - geo[2].boundary[2]) * ppColumn.node[2];
+    fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointNode + geo[1].boundary[1] * ppColumn.node[1], jointNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq); 
+    fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm + elmDelt, jointNode + geo[1].boundary[1] * ppColumn.node[1] + jointDelt, index.node + quadDelt, index.node + ppBeam.node[1] + quadDelt, jointNode + (geo[1].boundary[1] + 1) * ppColumn.node[1] + jointDelt, typq); 
+    
+    jointNode  = jointStartNode;
+    index.node = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0]+ (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.node[1];
+    index.elm  = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0]+ (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.elm [1] + ppBeam.elm [2];
+    for(int i = 0; i < geo[2].boundary[3] - geo[2].boundary[2]; i++)
     {
-        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[1], ppBeam.node[1], geo[1].boundary[2] - geo[1].boundary[1] - 1);
-        print_COPYELM(f, index.elm, index.elm + (geo[1].boundary[2] - geo[1].boundary[1] - 1) * ppBeam.elm[1], ppBeam.elm[1], ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
-        index.node = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0];
-        index.elm  = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0];
-        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointStartNode + (geo[1].boundary[1]) * ppColumn.node[1], jointStartNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq);
-        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[1], ppBeam.node[1], geo[1].boundary[2] - geo[1].boundary[1] - 1);
+        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointNode + geo[1].boundary[2] * ppColumn.node[1], jointNode + geo[1].boundary[2] * ppColumn.node[1] + ppColumn.node[2], index.node + ppBeam.node[2], typq); 
+        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm + elmDelt, jointNode + geo[1].boundary[2] * ppColumn.node[1] + jointDelt, index.node + quadDelt, index.node + ppBeam.node[2] + quadDelt, jointNode + geo[1].boundary[2] * ppColumn.node[1] + ppColumn.node[2] + jointDelt, typq); 
+    jointNode  += ppColumn.node[2];
+    index.node += ppBeam.node[2];
+    index.elm  += ppBeam.elm[2];
     }
-    else
+    //梁
+    quadDelt   = (geo[0].boundary[4] - geo[0].boundary[1] + 1) * ppBeam.node[0];
+    elmDelt    = (geo[0].boundary[4] - geo[0].boundary[1] + 1) * ppBeam.elm[0];
+    for(int i = 2; i <= 3; i++)
     {
-        print_COPYELM(f, index.elm, 0, 0, ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
-        index.node = startIndex.node + (geo[0].boundary[2] - 1) * ppBeam.node[0];
-        index.elm  = startIndex.elm  + (geo[0].boundary[2] - 1) * ppBeam.elm [0];
-        fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", index.elm, index.node, jointStartNode + (geo[1].boundary[1]) * ppColumn.node[1], jointStartNode + (geo[1].boundary[1] + 1) * ppColumn.node[1], index.node + ppBeam.node[1], typq);
+        index.node = startIndex.node + ppBeam.node[0] + (geo[2].boundary[i] - geo[2].boundary[2]) * ppBeam.node[2];
+        index.elm  = startIndex.elm  + ppBeam.elm [0] + (geo[2].boundary[i] - geo[2].boundary[2] + i - 2) * ppBeam.elm[2];
+        print_QUAD(f, index.elm, index.node, ppBeam.node, 0, 1, typq);
+        print_QUAD(f, index.elm + elmDelt, index.node + quadDelt, ppBeam.node, 0, 1, typq);    
+        print_COPYELM(f, index.elm, index.elm + elmDelt, elmDelt, ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
     }
+    index.node = startIndex.node + ppBeam.node[0] + (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.node[1];
+    index.elm  = startIndex.elm  + ppBeam.elm [0] + (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.elm[1] + ppBeam.elm[2];
+    print_QUAD(f, index.elm, index.node, ppBeam.node, 0, 2, typq);
+    print_QUAD(f, index.elm + elmDelt, index.node + quadDelt, ppBeam.node, 0, 2, typq);    
+    print_COPYELM(f, index.elm, index.elm + elmDelt, elmDelt, ppBeam.elm[0], ppBeam.node[0], geo[0].boundary[2] - geo[0].boundary[1] - 2);
+    
+    index.elm = startIndex.elm + ppBeam.elm[0] + (geo[1].boundary[2] - geo[1].boundary[1]) * ppBeam.elm[1] + ppBeam.elm[2];
+    elmDelt = (geo[0].boundary[2] - geo[0].boundary[1] - 2) * ppBeam.elm[0];
+    print_COPYELM(f, index.elm, index.elm + elmDelt, ppBeam.elm[0], ppBeam.elm[2], ppBeam.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+    index.elm += (geo[0].boundary[4] - geo[0].boundary[1] + 1) * ppBeam.elm[0];
+    print_COPYELM(f, index.elm, index.elm + elmDelt, ppBeam.elm[0], ppBeam.elm[2], ppBeam.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
 }
 
 void build_column()
@@ -1012,9 +1055,6 @@ int main()
         かぶりコンクリート
         鉄骨梁
         film要素
-
-        ---梁領域---
-        梁
 
         ---節点結合---
         HOLD
