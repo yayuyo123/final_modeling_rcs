@@ -473,6 +473,11 @@ void print_sub1(FILE *f, int s, int e, int i, int dir, int master, int mDir)
     fprintf(f, "SUB1 :NODE  S(%5d)-E(%5d)-I(%5d)-D(%1d)  M(%5d)-D(%1d)  F=1\n", s, e, i, dir, master, mDir);
 }
 
+void print_etyp(FILE *f, int s, int e, int i, int type, int inc, int set)
+{
+    fprintf(f, "ETYP :ELM  S(%5d)-E(%5d)-I(%5d)  TYPE(%3d))  INC(%5d)-SET(%4d))\n", s, e, i, type, inc, set);
+}
+
 /*COPYELMデータ書き込み*/
 int print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, int node_Inc, int set)
 {
@@ -1173,6 +1178,11 @@ void cut_surface(FILE *f, struct geometry geo[], int columnStart, int jointStart
     print_rest(f, beam, beam + (geo[0].boundary[2] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
     beam += (geo[0].boundary[4] + 1) * beamPp[0];
     print_rest(f, beam, beam + (geo[0].boundary[6] - geo[0].boundary[4] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
+}
+
+void add_typh()
+{
+
 }
 
 int main()
