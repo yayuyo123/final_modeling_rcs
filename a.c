@@ -268,9 +268,9 @@ void console_model_sizes(struct modelsize rcs)
 {
     printf("\n------------------[ MODEL ]------------------\n\n");
     printf("          span     width    depth    center\n");
-    printf("column   | %6.1f | %6.1f | %6.1f |x %6.1f |y %6.1f \n", rcs.column.span, rcs.column.width, rcs.column.depth, rcs.column.center[0], rcs.column.center[1]);
-    printf("beam     | %6.1f | %6.1f | %6.1f |y %6.1f |z %6.1f \n", rcs.beam.span, rcs.beam.width, rcs.beam.depth, rcs.beam.center[1], rcs.beam.center[2]);
-    printf("xbeam    |        | %6.1f |        |y        |z    \n\n", rcs.xbeam.width);
+    printf("column   | %6.2f | %6.2f | %6.2f |x %6.2f |y %6.2f \n", rcs.column.span, rcs.column.width, rcs.column.depth, rcs.column.center[0], rcs.column.center[1]);
+    printf("beam     | %6.2f | %6.2f | %6.2f |y %6.2f |z %6.2f \n", rcs.beam.span, rcs.beam.width, rcs.beam.depth, rcs.beam.center[1], rcs.beam.center[2]);
+    printf("xbeam    |        | %6.2f |        |y        |z    \n\n", rcs.xbeam.width);
     
     printf("reber");
     for(int i = 0; i < REBAR_MAX; ++i)
@@ -280,12 +280,12 @@ void console_model_sizes(struct modelsize rcs)
     printf("\nX    ");
     for(int i = 0; i < REBAR_MAX; ++i)
     {
-        printf("%7.1f", rcs.rebar[i].cordi[0]);
+        printf("%7.2f", rcs.rebar[i].cordi[0]);
     }
     printf("\nY    ");
     for(int i = 0; i < REBAR_MAX; ++i)
     {
-        printf("%7.1f", rcs.rebar[i].cordi[1]);
+        printf("%7.2f", rcs.rebar[i].cordi[1]);
     }
     printf("\n");
 
@@ -305,7 +305,7 @@ void console_mesh(struct geometry modelGeometry[], int dir[])
         printf("\nlen :");
         for(int i = 0; i < modelGeometry[j].mesh.number; i++)
         {
-            printf(" %5.1f", modelGeometry[j].mesh.length[i]);
+            printf(" %5.2f", modelGeometry[j].mesh.length[i]);
         }
     }
 }
@@ -359,7 +359,7 @@ void print_head_template(FILE *f, struct loadNode load)
     "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
     "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(1)    FACTOR=\n"
     "LOAD :APPLIED LOAD MONITOR NODE NO.(%5d)  DIR=(1)    FACTOR=\n"
-    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", load.node1, load.node2);
+    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", load.node2, load.node2);
 }
 
 void print_tail_template(FILE *f, struct loadNode load)
@@ -423,7 +423,7 @@ void print_tail_template(FILE *f, struct loadNode load)
 /*NODEデータ書き込み*/
 void print_NODE(FILE *f, int nodeIndex, double coordinates[]) 
 {
-    fprintf(f, "NODE :(%5d)  X=%-10.1fY=%-10.1fZ=%-10.1fRC=(000000)\n", nodeIndex, coordinates[0], coordinates[1], coordinates[2]);
+    fprintf(f, "NODE :(%5d)  X=%-10.2fY=%-10.2fZ=%-10.2fRC=(000000)\n", nodeIndex, coordinates[0], coordinates[1], coordinates[2]);
 }
 
 /*COPY:NODEデータ書き込み*/
@@ -449,9 +449,9 @@ int print_COPYNODE(FILE *f, int startIndex, int endIndex, int interval, double m
     {
         switch (dir) 
         {
-            case 0  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DX=%-9.1lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
-            case 1  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DY=%-9.1lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
-            case 2  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DZ=%-9.1lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
+            case 0  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DX=%-9.2lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
+            case 1  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DY=%-9.2lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
+            case 2  : fprintf(f, "COPY :NODE  S(%5d)-E(%5s)-I(%5s)  DZ=%-9.2lfINC(%5d)-SET(%4d)\n", index, end, _interval, meshLen, increment, set); break;
             default : printf("[ERROR] CopyNode\n");
         }
     }
@@ -846,12 +846,12 @@ struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry ge
     index = startIndex;
     for(int k = 0; k < 2; k++)
     {
-        for(int j = 2; j < 4; j++)
+        for(int j = 2; j <= 3; j++)
         {
             for(int i = geo[0].boundary[j], cnt = 0; i < geo[0].boundary[j + 1] - 1; i += cnt)
             {
                 cnt = count_consecutive(i, geo[0].boundary[j + 1] - 1, geo[0].mesh.length);
-                print_COPYNODE(f, index.node, index.node + (geo[2].boundary[j + 1] - geo[2].boundary[j]) * pp.node[2], pp.node[2], geo[0].mesh.length[i], pp.node[0], cnt, 0);
+                print_COPYNODE(f, index.node, index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node[2], geo[0].mesh.length[i], pp.node[0], cnt, 0);
                 index.node += cnt * pp.node[0];
             }
             index.node += pp.node[0];
@@ -998,7 +998,7 @@ struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry ge
         filmIndex = filmStart + (i - geo[0].boundary[2] + 1) * ppElm[0] + ppElm[1];
         if(i >= geo[0].boundary[3])
         {
-            delt -= pp.node[0];
+            delt = concreteSteelDelt - pp.node[0];
         }
         print_FILM(f, filmIndex, index.node - delt - pp.node[2], index.node, pp.node, 0, 1, 1);
         print_FILM(f, filmIndex + ppElm[2], index.node - delt, index.node, pp.node, 1, 0, 1);
@@ -1008,6 +1008,7 @@ struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry ge
         print_FILM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], index.node - delt + (geo[2].boundary[3] - geo[2].boundary[2] + 1) * pp.node[2], index.node + (geo[2].boundary[3] - geo[2].boundary[2]) * pp.node[2], pp.node, 1, 0, 1);
         print_COPYELM(f, filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 2) * ppElm[2], filmIndex + (geo[2].boundary[3] - geo[2].boundary[2] + 3) * ppElm[2], ppElm[2], ppElm[1], pp.node[1], geo[1].boundary[1] - 1);
     }
+    
     //要素タイプ定義
     typq[0] = 8;
     typq[1] = 12;
