@@ -16,6 +16,7 @@ struct components
     double  width;
     double  depth;
     double  center[XYZ];
+    double  Fc;
 };
 
 struct Rebar 
@@ -118,8 +119,8 @@ struct modelsize Model_Size_Load(FILE *f)
     int index = 0;
 
     //柱、梁情報
-    fscanf(f, "Column : Span(%lf) Width(%lf) Depth(%lf) X_Center(%lf) Y_Center(%lf)",
-        &temp.column.span, &temp.column.width, &temp.column.depth, &temp.column.center[0], &temp.column.center[1]);
+    fscanf(f, "Column : Span(%lf) Width(%lf) Depth(%lf) X_Center(%lf) Y_Center(%lf) Fc(%lf)",
+        &temp.column.span, &temp.column.width, &temp.column.depth, &temp.column.center[0], &temp.column.center[1], &temp.column.Fc);
     while((fgetc(f)) != '\n'){}
     fscanf(f, "Beam   : Span(%lf) Width(%lf) Depth(%lf) Y_Center(%lf) Z_Center(%lf)",
         &temp.beam.span, &temp.beam.width, &temp.beam.depth, &temp.beam.center[1], &temp.beam.center[2]);
@@ -354,7 +355,7 @@ void print_head_template(FILE *f, struct loadNode load)
     fprintf(f,
     "-------------------< FINAL version 11  Input data >---------------------\n"
     "TITL :\n"
-    "EXEC :STEP (    1)-->(   10)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
+    "EXEC :STEP (    1)-->(   11)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
     "LIST :ECHO=(0)  MODEL=(1)  RESULTS=(1)  MESSAGE=(2)  WARNING=(2)  (0:NO)\n"
     "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
     "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(1)    FACTOR=\n"
@@ -362,7 +363,26 @@ void print_head_template(FILE *f, struct loadNode load)
     "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", load.node2, load.node2);
 }
 
-void print_tail_template(FILE *f, struct loadNode load)
+void column_axial_force(FILE *f, int startElm, struct geometry geo[], double Fc, int elmPp[])
+{
+    int elm;
+    double rate = 0.2;
+    double unit = rate * Fc;
+    fprintf(f,"\nSTEP :UP TO NO.(    1)   MAXIMUM LOAD INCREMENT=         CREEP=( )(0:NO)\n");
+    for(int i = 0; i < geo[1].boundary[2]; i++)
+    {
+        elm = startElm + i * elmPp[1];
+        fprintf(f,"  UE :ELM   S(%5d)-E(%5d)-I(%5d)     UNIT=%-9.4fDIR(3)  FACE(1)\n", elm, elm + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * elmPp[0], elmPp[0], unit);
+    }
+    for(int i = 0; i < geo[1].boundary[2]; i++)
+    {
+        elm = startElm + i * elmPp[1] + (geo[2].boundary[4] - geo[2].boundary[1]) * elmPp[2];
+        fprintf(f,"  UE :ELM   S(%5d)-E(%5d)-I(%5d)     UNIT=-%-8.4fDIR(3)  FACE(2)\n", elm, elm + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * elmPp[0], elmPp[0], unit);
+    }
+    fprintf(f," OUT :STEP  S(    1)-E(     )-I(     ) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n\n");
+}
+
+void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geometry geo[], double Fc, int elmPp[])
 {
     fprintf(f,
     "\n----+----\n"
@@ -412,11 +432,13 @@ void print_tail_template(FILE *f, struct loadNode load)
     "MATJ :(  2)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n"
     "\n----+----\n"
     "AXIS :(  1)  TYPE=(1) (1:GLOBAL 2:ELEMENT 3:INPUT 4:CYLINDER 5:SPHERE)\n"
-    "\n----+----\n"
-    "STEP :UP TO NO.(   10)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n"
+    "\n----+----");
+    column_axial_force(f, startElm, geo, Fc, elmPp);
+    fprintf(f,
+    "STEP :UP TO NO.(   11)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=-10      DIR(1)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=10       DIR(1)\n"
-    " OUT :STEP  S(    1)-E(   10)-I(    1) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
+    " OUT :STEP  S(    2)-E(   11)-I(    1) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
     "\nEND\n", load.node1, load.node2);
 }
 
@@ -1022,7 +1044,7 @@ struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry ge
         }
         else if(number > 1)
         {
-            print_etyp(f, index.elm, index.elm + number * ppElm[1], ppElm[1], typq[j], ppElm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+            print_etyp(f, index.elm, index.elm + (number - 1) * ppElm[1], ppElm[1], typq[j], ppElm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
         }
         index.elm += (geo[0].boundary[4] - geo[0].boundary[2] + 2) * ppElm[0];
     }
@@ -1036,7 +1058,7 @@ struct nodeElm quad_joint(FILE *f, struct nodeElm startIndex, struct geometry ge
         }
         else if(number > 1)
         {
-            print_etyp(f, index.elm, index.elm + number * ppElm[0], ppElm[0], 10, ppElm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+            print_etyp(f, index.elm, index.elm + (number - 1) * ppElm[0], ppElm[0], 10, ppElm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
         }
         index.elm += (number + 1) * ppElm[0];
     }
@@ -1483,7 +1505,8 @@ int main()
     //六面体要素番号
     add_typh(fout, modelGeometry, rcs, startElm, ppColumn.elm);
 
-    print_tail_template(fout, loadNode);
+
+    print_tail_template(fout, loadNode, startElm, modelGeometry, rcs.column.Fc, ppColumn.elm);
     fclose(fout);
 
     printf("\n[END]\n");
