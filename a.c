@@ -1355,7 +1355,7 @@ void add_typh(FILE *f, struct geometry geo[], struct modelsize rcs, int columnSt
     }
 }
 
-int main()
+void modeling_rcs()
 {
     /*todo
         ---要素タイプ---
@@ -1403,7 +1403,7 @@ int main()
     if(fin == NULL)
     {
         printf("[ERROR] input.txt cant open.\n");
-        return 1;
+        //return 1;
     }
     for(int i = 0; i < 3; i++)
     {
@@ -1457,7 +1457,7 @@ int main()
     if(fout == NULL)
     {
         printf("[ERROR] out.ffi cant open.\n");
-        return 1;
+        //return 1;
     }
 
     //雛形
@@ -1511,5 +1511,10 @@ int main()
 
     printf("\n[END]\n");
 
+}
+
+int main()
+{
+    modeling_rcs();
     return 0;
 }
