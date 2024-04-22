@@ -3,7 +3,6 @@
 #include <string.h>
 #include <math.h>
 
-#define INPUT_FILE_NAME "input.txt"
 #define OUT_FILE_NAME   "out.ffi"
 #define MESH_ARRAY_MAX 64 //注意が必要
 #define REBAR_MAX      16 
@@ -1355,7 +1354,7 @@ void add_typh(FILE *f, struct geometry geo[], struct modelsize rcs, int columnSt
     }
 }
 
-void modeling_rcs()
+void modeling_rcs(const char *inputFileName)
 {
     /*todo
         ---要素タイプ---
@@ -1399,11 +1398,11 @@ void modeling_rcs()
 
     printf("\n[START]\n");
 
-    FILE *fin = fopen(INPUT_FILE_NAME,"r");
+    FILE *fin = fopen(inputFileName,"r");
     if(fin == NULL)
     {
-        printf("[ERROR] input.txt cant open.\n");
-        //return 1;
+        printf("[ERROR] %s cant open.\n", inputFileName);
+        return ;
     }
     for(int i = 0; i < 3; i++)
     {
@@ -1457,7 +1456,7 @@ void modeling_rcs()
     if(fout == NULL)
     {
         printf("[ERROR] out.ffi cant open.\n");
-        //return 1;
+        return ;
     }
 
     //雛形
@@ -1513,8 +1512,22 @@ void modeling_rcs()
 
 }
 
-int main()
+void show_usage()
 {
-    modeling_rcs();
+    printf(
+        "usage\n"
+    );
+}
+
+
+
+int main(int argc, char *argv[])
+{
+    if(argc != 2)
+    {
+        show_usage();
+        return 1;
+    }
+    modeling_rcs(argv[1]);
     return 0;
 }
