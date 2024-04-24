@@ -1439,8 +1439,16 @@ void modeling_rcs(const char *inputFileName, int opt1)
     //
     joint_nodes(fout, startNode, modelGeometry, rcs, columnPp.node);
 
-    pin(fout, beamStartNode, modelGeometry, beamPp.node);
-    pin_roller(fout, startNode, loadNode, modelGeometry, columnPp.node);
+    if(opt1 == 'c')
+    {
+        pin(fout, beamStartNode, modelGeometry, beamPp.node);
+        pin_roller(fout, startNode, loadNode, modelGeometry, columnPp.node);
+    }else if(opt1 == 'b')
+    {
+        pin(fout, beamStartNode, modelGeometry, beamPp.node);
+        pin_roller(fout, startNode, loadNode, modelGeometry, columnPp.node);
+    }
+    
     cut_surface(fout, modelGeometry, startNode, jointStartNode, beamStartNode, columnPp.node, beamPp.node);
     //六面体要素番号
     add_typh(fout, modelGeometry, rcs, startElm, columnPp.elm);
