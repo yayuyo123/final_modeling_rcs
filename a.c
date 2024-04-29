@@ -170,18 +170,34 @@ int coordinate_to_point(double cordi, const double array[])
     return -999;
 }
 
-void get_load_node(LoadNode *load, int startNode, const int pp[], const Geometry geo[], int columnSpan, int opt1)
+void get_load_node(LoadNode *pin, LoadNode *roller, int column, int beam, const int columnPp[], const int beamPp[], const Geometry geo[], int columnSpan, int opt1)
 {
-    load->node1 = startNode + (geo[1].boundary[2] - geo[1].boundary[opt1]) * pp[1];
+    LoadNode node;
+    //柱
+    node.node1 = column + (geo[0].boundary[3] - geo[0].boundary[2]) * columnPp[0] + geo[1].boundary[2] * columnPp[1];
+    node.node2 = node.node1 + (geo[2].boundary[5] + 4) * columnPp[2];
     if(opt1 == 0)
     {
-        load->node1 += (geo[0].boundary[3] - geo[0].boundary[2]) * pp[0];
-        load->node2  = load->node1 + (geo[2].boundary[5] + 4) * pp[2];
+        roller->node1 = node.node1;
+        roller->node2 = node.node2;
     }
     else if(opt1 == 1)
     {
-        load->node2  = load->node1 + (coordinate_to_point(columnSpan / 2, geo[2].mesh.length) - geo[2].boundary[2]) * pp[2];
-        load->node1  = load->node2 + geo[0].boundary[6] * pp[0];
+        pin->node1 = node.node1;
+        pin->node2 = node.node2;
+    }
+    //梁
+    node.node1 = beam + (geo[1].boundary[2] - geo[1].boundary[1]) * beamPp[1] + (coordinate_to_point(columnSpan / 2, geo[2].mesh.length) - geo[2].boundary[2]) * beamPp[2];
+    node.node2 = node.node1 + geo[0].boundary[6] * beamPp[0];
+    if(opt1 == 0)
+    {
+        pin->node1 = node.node1;
+        pin->node2 = node.node2;
+    }
+    else if(opt1 == 1)
+    {
+        roller->node1 = node.node1;
+        roller->node2 = node.node2;
     }
 }
 
@@ -358,6 +374,11 @@ void console_index(struct nodeElm index, char *str)
 //頭のひな形
 void print_head_template(FILE *f, struct loadNode load, int opt1)
 {
+    int node = load.node1;
+    if(opt1 == 0)
+    {
+        node = load.node2;
+    }
     int dir = 1 + 2 * opt1;
     fprintf(f,
     "-------------------< FINAL version 11  Input data >---------------------\n"
@@ -367,7 +388,7 @@ void print_head_template(FILE *f, struct loadNode load, int opt1)
     "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
     "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
     "LOAD :APPLIED LOAD MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
-    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", load.node2, dir, load.node2, dir);
+    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", node, dir, node, dir);
 }
 
 void column_axial_force(FILE *f, int startElm, struct geometry geo[], double Fc, int elmPp[])
@@ -392,6 +413,12 @@ void column_axial_force(FILE *f, int startElm, struct geometry geo[], double Fc,
 void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geometry geo[], double Fc, int elmPp[], int opt1)
 {
     int dir = 1 + 2 * opt1;
+    LoadNode node = load;
+    if(opt1 == 1)
+    {
+        node.node1 = load.node2;
+        node.node2 = load.node1;
+    }
     fprintf(f,
     "\n----+----\n"
     "TYPH :(  1)  MATS(  1)  AXIS(   )\n"
@@ -447,7 +474,7 @@ void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geo
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=-10      DIR(%1d)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=10       DIR(%1d)\n"
     " OUT :STEP  S(    2)-E(   11)-I(    1) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
-    "\nEND\n", load.node1, dir, load.node2, dir);
+    "\nEND\n", node.node1, dir, node.node2, dir);
 }
 
 /*NODEデータ書き込み*/
@@ -1201,7 +1228,7 @@ void joint_nodes(FILE *f, int startNode, struct geometry geo[], struct modelsize
     }
 }
 
-void pin(FILE *f, int startNode, struct geometry geo[], int pp[], int opt1)
+void set_pin(FILE *f, int startNode, struct geometry geo[], int pp[], int opt1)
 {
     int rest = 99 * opt1 + 1;
     int dir  = 2 - 2 * opt1;
@@ -1213,7 +1240,7 @@ void pin(FILE *f, int startNode, struct geometry geo[], int pp[], int opt1)
     print_rest(f, node, node + delt, pp[1], rest, pp[dir], geo[dir].boundary[3 + opt1] - geo[dir].boundary[2] + opt1);
 }
 
-void roller(FILE *f, int startNode, struct loadNode load, struct geometry geo[], int pp[], int opt1, int span)
+void set_roller(FILE *f, int startNode, struct loadNode load, struct geometry geo[], int pp[], int opt1, int span)
 {
     int dir = opt1 * 2;
     int sub = dir + 1;
@@ -1368,7 +1395,8 @@ void modeling_rcs(const char *inputFileName, int opt1)
     Geometry  modelGeometry[XYZ];
     Increment columnPp;
     Increment beamPp;
-    LoadNode  loadNode;
+    LoadNode  roller;
+    LoadNode  pin;
 
     printf("\n[START]\n");
 
@@ -1451,15 +1479,34 @@ void modeling_rcs(const char *inputFileName, int opt1)
     elmNum = next_index(elmNum) - 1;
     beamHexa.elm = jointQuad.elm + elmNum * 2;
 
-    if(opt1 == 0)
-    {
-        get_load_node(&loadNode, columnHexa.node, columnPp.node, modelGeometry, rcs.column.span, opt1);
-    }
-    else if(opt1 == 1)
-    {
-        get_load_node(&loadNode, beamHexa.node, beamPp.node, modelGeometry, rcs.column.span, opt1);
-    }
+    get_load_node(&pin, &roller, columnHexa.node, beamHexa.node, columnPp.node, beamPp.node, modelGeometry, rcs.column.span, opt1);
 
+    //node
+    FILE *fnode = fopen("node.txt", "w");
+    if(fnode != NULL)
+    {
+        fprintf(fnode, "--\nparts   node      incX     Y     Z\n");
+        fprintf(fnode, "column %5d  %5d %5d %5d\n", columnHexa.node, columnPp.node[0], columnPp.node[1], columnPp.node[2]);
+        fprintf(fnode, "joint  %5d  %5d %5d %5d\n", jointQuad.node, columnPp.node[0], columnPp.node[1], columnPp.node[2]);
+        fprintf(fnode, "beam   %5d  %5d %5d %5d\n", beamHexa.node, beamPp.node[0], beamPp.node[1], beamPp.node[2]);
+        fprintf(fnode, "--\nroller %5d %5d\n", roller.node1, roller.node2);
+        fprintf(fnode, "pin    %5d %5d\n", pin.node1, pin.node2);
+        fprintf(fnode, "--\nweb panel\n");
+        int setY = modelGeometry[1].boundary[2] * columnPp.node[1];
+        int setZ = (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2]) * columnPp.node[2];
+        fprintf(fnode, "%05d --- %05d --- %05d\n", jointQuad.node + setY + setZ, jointQuad.node + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]) * columnPp.node[0] + setY + setZ, jointQuad.node + (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2]) * columnPp.node[0] + setY + setZ);
+        fprintf(fnode, "    |                   |\n");
+        setZ = (coordinate_to_point(rcs.column.span / 2, modelGeometry[2].mesh.length) - modelGeometry[2].boundary[2]) * columnPp.node[2];
+        fprintf(fnode, "%05d               %05d\n", jointQuad.node + setY + setZ, jointQuad.node + (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2]) * columnPp.node[0] + setY + setZ);
+        fprintf(fnode, "    |                   |\n");
+        fprintf(fnode, "%05d --- %05d --- %05d\n", jointQuad.node + setY, jointQuad.node + (modelGeometry[0].boundary[3] - modelGeometry[0].boundary[2]) * columnPp.node[0] + setY, jointQuad.node + (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2]) * columnPp.node[0] + setY);
+        fclose(fnode);
+    }
+    else
+    {
+        printf("[ERROR] \n");
+    }
+    
     //ファイルオープン
     FILE *fout = fopen(OUT_FILE_NAME,"w");
     if(fout == NULL)
@@ -1469,7 +1516,7 @@ void modeling_rcs(const char *inputFileName, int opt1)
     }
 
     //雛形
-    print_head_template(fout, loadNode, opt1);    
+    print_head_template(fout, roller, opt1);    
     printf("\n------------------[ COLUMN ]------------------\n");
 
     //柱六面体要素
@@ -1498,19 +1545,19 @@ void modeling_rcs(const char *inputFileName, int opt1)
     //柱加力or梁加力
     if(opt1 == 0)//柱加力
     {
-        pin(fout, beamHexa.node, modelGeometry, beamPp.node, opt1);
-        roller(fout, columnHexa.node, loadNode, modelGeometry, columnPp.node, opt1, rcs.beam.span);
+        set_pin(fout, beamHexa.node, modelGeometry, beamPp.node, opt1);
+        set_roller(fout, columnHexa.node, roller, modelGeometry, columnPp.node, opt1, rcs.beam.span);
     }else if(opt1 == 1)//梁加力
     {
-        pin(fout, columnHexa.node, modelGeometry, columnPp.node, opt1);
-        roller(fout, beamHexa.node, loadNode, modelGeometry, beamPp.node, opt1, rcs.column.span);
+        set_pin(fout, columnHexa.node, modelGeometry, columnPp.node, opt1);
+        set_roller(fout, beamHexa.node, roller, modelGeometry, beamPp.node, opt1, rcs.column.span);
     }
 
     cut_surface(fout, modelGeometry, startNode, jointQuad.node, beamHexa.node, columnPp.node, beamPp.node);
     //六面体要素番号
     add_typh(fout, modelGeometry, rcs, startElm, columnPp.elm);
 
-    print_tail_template(fout, loadNode, startElm, modelGeometry, rcs.column.Fc, columnPp.elm, opt1);
+    print_tail_template(fout, roller, startElm, modelGeometry, rcs.column.Fc, columnPp.elm, opt1);
     fclose(fout);
 
     printf("\n[END]\n");
