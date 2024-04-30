@@ -459,6 +459,7 @@ void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geo
     "  LQ :  Z-LAYER=( 4)  OFFSET=        TR-SHEAR=(2) (0:NO)  Z-ROTATION=(0)\n"*/
     "TYPL :(  1)  MATJ(  1)  AXIS(  1)  THICKNESS=1        Z=(1) (1:N  2:S)\n"
     "TYPF :(  1)  MATJ(  2)  AXIS(   )\n"
+    "TYPF :(  2)  MATJ(  2)  AXIS(   )\n"
     "\n----+----\n"
     "MATS :(  1)  ES=2.05   (E+5) PR=0.3   SY=295    HR=0.01  ALP=      (E-5)\n"
     "MATS :(  2)  ES=2.05   (E+5) PR=0.3   SY=295    HR=0.01  ALP=      (E-5)\n"
@@ -1068,6 +1069,10 @@ void add_joint_quad(FILE *f, struct nodeElm startIndex, struct geometry geo[], s
         }
         index.elm += (number + 1) * jointPp.elm[0];
     }
+    film = filmStart + (geo[0].boundary[3] - geo[0].boundary[2] + 1) * jointPp.elm[0] + jointPp.elm[1] + 2 * jointPp.elm[2];
+    print_etyp(f, film, film + (geo[1].boundary[2] - 1) * jointPp.elm[1], jointPp.elm[1], 2, jointPp.elm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
+    film = filmStart + (geo[0].boundary[3] - geo[0].boundary[2] + 2) * jointPp.elm[0] + jointPp.elm[1] + 2 * jointPp.elm[2];
+    print_etyp(f, film, film + (geo[1].boundary[2] - 1) * jointPp.elm[1], jointPp.elm[1], 2, jointPp.elm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
 }
 
 void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, struct geometry geo[])
