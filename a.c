@@ -1002,8 +1002,8 @@ void add_joint_quad(FILE *f, struct nodeElm startIndex, struct geometry geo[], s
             film  += jointPp.elm[0];
             delt -= pp.node[0];
         }
-        print_FILM(f, film, index.node - delt - pp.node[2], index.node, pp.node, 1, 0, 1);
-        print_FILM(f, film + jointPp.elm[2], index.node - delt, index.node, pp.node, 0, 1, 1);
+        print_FILM(f, film, index.node - delt - pp.node[2], index.node, pp.node, 0, 1, 1);
+        print_FILM(f, film + jointPp.elm[2], index.node - delt, index.node, pp.node, 1, 0, 1);
         print_COPYELM(f, film, film + jointPp.elm[2], jointPp.elm[2], jointPp.elm[0], pp.node[0], geo[0].boundary[i + 1] - geo[0].boundary[i] - 1);
         if(flangeNum > 1)
         {
