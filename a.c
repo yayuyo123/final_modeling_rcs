@@ -414,7 +414,7 @@ void column_axial_force(FILE *f, int startElm, const Geometry geo[], double Fc, 
     }
     for(int i = 0; i < geo[1].boundary[2]; i++)
     {
-        elm = startElm + i * elmPp[1] + (geo[2].boundary[4] - geo[2].boundary[1]) * elmPp[2];
+        elm = startElm + i * elmPp[1] + (geo[2].boundary[5] - geo[2].boundary[1]) * elmPp[2];
         fprintf(f,"  UE :ELM   S(%5d)-E(%5d)-I(%5d)     UNIT=-%-8.4fDIR(3)  FACE(2)\n", elm, elm + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * elmPp[0], elmPp[0], unit);
     }
     fprintf(f," OUT :STEP  S(    1)-E(     )-I(     ) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n\n");
@@ -425,11 +425,11 @@ void print_tail_template(FILE *f, struct loadNode load, int startElm, const Geom
     int dir = 1 + 2 * opt1;
     fprintf(f,
     "\n----+----\n"
-    "TYPH :(  1)  MATS(  1)  AXIS(   )\n"
+    "TYPH :(  1)  MATC(  1)  AXIS(   )\n"
     "TYPH :(  2)  MATC(  1)  AXIS(   )\n"
     "TYPH :(  3)  MATC(  1)  AXIS(   )\n"
     "TYPH :(  4)  MATC(  1)  AXIS(   )\n"
-    "TYPH :(  5)  MATC(  1)  AXIS(   )\n"
+    "TYPH :(  5)  MATS(  1)  AXIS(   )\n"
     "TYPB :(  1)  MATS(  2)  AXIS(   )  COEF=        D1=1       D2=        :\n"
     "TYPQ :(  1)  MATS(  1)  AXIS(   )  THICKNESS=1       P-STRAIN=(0) (0:NO)\n"
     "  LQ :  Z-LAYER=( 4)  OFFSET=        TR-SHEAR=(2) (0:NO)  Z-ROTATION=(0)\n"
