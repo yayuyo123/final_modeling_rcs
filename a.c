@@ -69,86 +69,87 @@ typedef struct loadNode
     int node2;
 } LoadNode;
 
-void read_csv(FILE *f, Geometry *geo)
+void read_csv(FILE *f, Mesh *mesh)
 {
     int cnt = 0;
     if(fgetc(f) == '(')
     {
-        do
+        fscanf(f, "%lf[^,)]", &mesh->length[cnt++]);
+        while (fgetc(f) != ')')
         {
-            fscanf(f, "%lf[^,)]", &geo->mesh.length[cnt++]);
-        } while (fgetc(f) != ')');
-        geo->mesh.number = cnt;
-        geo->mesh.length[cnt] = -999.0;
+            fscanf(f, "%lf[^,)]", &mesh->length[cnt++]);
+        }
+        mesh->number = cnt;
+        mesh->length[cnt] = -999.0;
     }
 }
 
-int load_inputdata(const char *inputFileName, Geometry geo[], ModelSize *modelSize)
+
+ModelSize load_size(FILE *f)
 {
-    //メッシュ
-    char str[3][16] = {"X_Mesh_Sizes", "Y_Mesh_Sizes", "Z_Mesh_Sizes"};
-    FILE *f = fopen(inputFileName, "r");
-    if(f == NULL){
-        printf("[ERROR] %s cant open.\n", inputFileName);
-        return 1;
-    }
-    
-    int ch;
-    for(int i = 0; i < 3; i++)
-    {
-        int cnt = 0;
-        while(str[i][cnt] != '\0')
-        {
-            ch = fgetc(f);
-            if(ch != str[i][cnt++])
-            {
-                fprintf(stderr, "[ERROR]\n");
-                return 1;
-            }
-        }
-        read_csv(f, &geo[i]);
-        while((fgetc(f)) != '\n'){}
-    }
+    ModelSize modelSize;    
     //柱梁
     fscanf(f, "Column : Span(%lf) Width(%lf) Depth(%lf) X_Center(%lf) Y_Center(%lf) Fc(%lf)",
-        &modelSize->column.span, &modelSize->column.width, &modelSize->column.depth, &modelSize->column.center[0], &modelSize->column.center[1], &modelSize->column.Fc);
+        &modelSize.column.span, &modelSize.column.width, &modelSize.column.depth, &modelSize.column.center[0], &modelSize.column.center[1], &modelSize.column.Fc);
     while((fgetc(f)) != '\n'){}
     fscanf(f, "Beam   : Span(%lf) Width(%lf) Depth(%lf) Y_Center(%lf) Z_Center(%lf)",
-        &modelSize->beam.span, &modelSize->beam.width, &modelSize->beam.depth, &modelSize->beam.center[1], &modelSize->beam.center[2]);
+        &modelSize.beam.span, &modelSize.beam.width, &modelSize.beam.depth, &modelSize.beam.center[1], &modelSize.beam.center[2]);
     while((fgetc(f)) != '\n'){}
-    fscanf(f, "xBeam  : Width(%lf)",&modelSize->xbeam.width);
+    fscanf(f, "xBeam  : Width(%lf)", &modelSize.xbeam.width);
     while((fgetc(f)) != '\n'){}
     //主筋
-    int index;
-    fscanf(f, "Rebar %d:", &index);
-    while(index <= REBAR_MAX)
+    for(int i = 0; i <= REBAR_MAX; i++)
     {
-        fscanf(f, "Rebar %d:", &index);
-        int result = fscanf(f, " X(%lf) Y(%lf)", &modelSize->rebar[index - 1].cordi[0], &modelSize->rebar[index - 1].cordi[1]);
-        if (result == EOF) {
-            // ファイルの終わりに達した場合はループを終了
-            break;
-        } else if (result == 0) {
-            // 数値の読み取りに失敗した場合はエラーを表示して終了
-            modelSize->rebar[index].cordi[0] = -999;
-            modelSize->rebar[index].cordi[1] = -999;
+        if(fgetc(f) == 'R'){
+            int index;
+            fscanf(f, "ebar %d:", &index);
+            if(index != i + 1){
+                printf("[ERROR] index = %d i + 1 = %d\n", index, i + 1);
+            }
+            int result = fscanf(f, " X(%lf) Y(%lf)", &modelSize.rebar[i].cordi[0], &modelSize.rebar[i].cordi[1]);
+            if (result != 2) { //値の読み込みが失敗した場合はループを終了
+                printf("[ERROR]\n");
+                break;
+            }
+            modelSize.rebar[i].cordi[0] += (modelSize.beam.span - modelSize.column.depth) / 2;
+            while((fgetc(f)) != '\n'){}
+        }else{
+            modelSize.rebar[i].cordi[0] = -999.0;
+            modelSize.rebar[i].cordi[1] = -999.0;
+            while((fgetc(f)) != '\n'){}
             break;
         }
-        modelSize->rebar[index - 1].cordi[0] += (modelSize->beam.span - modelSize->column.depth) / 2;
-        while((fgetc(f)) != '\n'){}
     }
-    fclose(f);
-    return 0;
+    return modelSize;
 }
 
 /*mesh範囲を全体に広げる*/
-void symmetrical_input(struct geometry *mesh)
+void symmetrical_input(Mesh *mesh)
 {
-    int original_number = mesh->mesh.number;
+    int original_number = mesh->number;
     for (int i = 0; i < original_number; i++) {
-        mesh->mesh.length[2 * original_number - i - 1] = mesh->mesh.length[i];
+        mesh->length[2 * original_number - i - 1] = mesh->length[i];
     }
-    mesh->mesh.number *= 2;
+    mesh->number *= 2;
+}
+
+Mesh load_mesh(FILE *f, int dir)
+{
+    Mesh mesh;
+    const char str[3][16] = {"X_Mesh_Sizes", "Y_Mesh_Sizes", "Z_Mesh_Sizes"};
+    for(int i = 0; str[dir][i] != '\0'; i++){
+        int ch = fgetc(f);
+        if(ch != str[dir][i]){
+            fprintf(stderr, "[ERROR] dir = %d i = %d str = %c\n", dir, i, ch);
+            break;
+        }
+    }
+    read_csv(f, &mesh);
+    while((fgetc(f)) != '\n'){}
+    if(dir != 1){
+        symmetrical_input(&mesh);
+    }
+    return mesh;
 }
 
 int coordinate_to_point(double cordi, const double array[])
@@ -168,6 +169,38 @@ int coordinate_to_point(double cordi, const double array[])
         }
     }
     return -999;
+}
+
+void get_boundary(int boundary[], const Mesh *mesh, int dir, const ModelSize *rcs)
+{
+    if(dir == 0){      //x
+        boundary[0] = 0;
+        boundary[1] = 1;
+        boundary[2] = coordinate_to_point((rcs->beam.span - rcs->column.depth) / 2, mesh->length);
+        boundary[3] = mesh->number / 2;
+        boundary[4] = coordinate_to_point((rcs->beam.span + rcs->column.depth) / 2, mesh->length);
+        boundary[5] = mesh->number - 1;
+        boundary[6] = mesh->number;
+    }else if(dir == 1){ //y
+        boundary[0] = 0;
+        boundary[1] = coordinate_to_point((rcs->column.width - rcs->beam.width) / 2, mesh->length);
+        boundary[2] = mesh->number;
+    }else if(dir == 2){ //z
+        boundary[0] = 0;
+        boundary[1] = 1;
+        boundary[2] = coordinate_to_point((rcs->column.span - rcs->beam.depth) / 2, mesh->length);
+        boundary[3] = coordinate_to_point((rcs->column.span + rcs->beam.depth) / 2, mesh->length);
+        boundary[4] = mesh->number - 1;
+        boundary[5] = mesh->number;
+    }
+}
+
+Geometry set_geometry(FILE *f, int dir, const ModelSize *rcs)
+{
+    Geometry geo;
+    geo.mesh = load_mesh(f, dir);
+    get_boundary(geo.boundary, &geo.mesh, dir, rcs);
+    return geo;
 }
 
 void get_load_node(LoadNode *pin, LoadNode *roller, int column, int beam, const int columnPp[], const int beamPp[], const Geometry geo[], int columnSpan, int opt1)
@@ -234,29 +267,6 @@ int count_consecutive(int start, int end, const double array[])
     return count;
 }
 
-void get_boundary(struct modelsize rcs, struct geometry geo[])
-{
-    //x
-    geo[0].boundary[0] = 0;
-    geo[0].boundary[1] = 1;
-    geo[0].boundary[2] = coordinate_to_point((rcs.beam.span - rcs.column.depth) / 2, geo[0].mesh.length);
-    geo[0].boundary[3] = geo[0].mesh.number / 2;
-    geo[0].boundary[4] = coordinate_to_point((rcs.beam.span + rcs.column.depth) / 2, geo[0].mesh.length);
-    geo[0].boundary[5] = geo[0].mesh.number - 1;
-    geo[0].boundary[6] = geo[0].mesh.number;
-    //y
-    geo[1].boundary[0] = 0;
-    geo[1].boundary[1] = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length);
-    geo[1].boundary[2] = geo[1].mesh.number;
-    //z
-    geo[2].boundary[0] = 0;
-    geo[2].boundary[1] = 1;
-    geo[2].boundary[2] = coordinate_to_point((rcs.column.span - rcs.beam.depth) / 2, geo[2].mesh.length);
-    geo[2].boundary[3] = coordinate_to_point((rcs.column.span + rcs.beam.depth) / 2, geo[2].mesh.length);
-    geo[2].boundary[4] = geo[2].mesh.number - 1;
-    geo[2].boundary[5] = geo[2].mesh.number;
-}
-
 void get_increment(Increment *column, Increment *beam, const Geometry geo[])
 {
     //柱
@@ -282,13 +292,13 @@ int next_index(int lastNode) //1000の位を更新
     return lastNode;
 }
 
-void set_start_end(struct startEnd *point, int start, int end, int boundary[], int dir)
+void set_start_end(struct startEnd *point, int start, int end, const int boundary[], int dir)
 {
     point->start[dir] = boundary[start];
     point->end  [dir] = boundary[end];
 }
 
-void console_model_sizes(struct modelsize rcs)
+void console_model_sizes(const ModelSize rcs)
 {
     printf("\n------------------[ MODEL ]------------------\n\n");
     printf("           span      width     depth     center\n");
@@ -314,7 +324,7 @@ void console_model_sizes(struct modelsize rcs)
     printf("\n");
 }
 
-void console_mesh(struct geometry geo[])
+void console_mesh(const Geometry geo[])
 {
     int dir[3] = {'x', 'y', 'z'};
     printf("\n------------------[ MESH ]------------------\n");
@@ -334,7 +344,7 @@ void console_mesh(struct geometry geo[])
     }
 }
 
-void console_boundary(struct geometry geo[])
+void console_boundary(const Geometry geo[])
 {
     printf("\n------------------[ BOUNDARY ]------------------\n");
     printf("X  : ");
@@ -391,7 +401,7 @@ void print_head_template(FILE *f, struct loadNode load, int opt1)
     "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", node, dir, node, dir);
 }
 
-void column_axial_force(FILE *f, int startElm, struct geometry geo[], double Fc, int elmPp[])
+void column_axial_force(FILE *f, int startElm, const Geometry geo[], double Fc, int elmPp[])
 {
     int elm;
     double rate = 0.2;
@@ -410,15 +420,9 @@ void column_axial_force(FILE *f, int startElm, struct geometry geo[], double Fc,
     fprintf(f," OUT :STEP  S(    1)-E(     )-I(     ) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n\n");
 }
 
-void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geometry geo[], double Fc, int elmPp[], int opt1)
+void print_tail_template(FILE *f, struct loadNode load, int startElm, const Geometry geo[], double Fc, int elmPp[], int opt1)
 {
     int dir = 1 + 2 * opt1;
-    LoadNode node = load;
-    if(opt1 == 1)
-    {
-        node.node1 = load.node2;
-        node.node2 = load.node1;
-    }
     fprintf(f,
     "\n----+----\n"
     "TYPH :(  1)  MATS(  1)  AXIS(   )\n"
@@ -475,7 +479,7 @@ void print_tail_template(FILE *f, struct loadNode load, int startElm, struct geo
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=-10      DIR(%1d)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=10       DIR(%1d)\n"
     " OUT :STEP  S(    2)-E(   11)-I(    1) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
-    "\nEND\n", node.node1, dir, node.node2, dir);
+    "\nEND\n", load.node1, dir, load.node2, dir);
 }
 
 /*NODEデータ書き込み*/
@@ -695,7 +699,7 @@ void generate_fibar(FILE *f, const Increment *pp, const StartEnd *point, const N
     print_COPYELM(f, start->elm, 0, 0, 1, pp->node[dir], point->end[dir] - point->start[dir] - 1);
 }
 
-void generate_quad(FILE *f, const Increment *pp, const StartEnd *point, const NodeElm *start, Geometry geo[], int typq)
+void generate_quad(FILE *f, const Increment *pp, const StartEnd *point, const NodeElm *start, const Geometry geo[], int typq)
 {
     int dir1 = 0, dir2 = 1;
     for(int i = 0; i < 2; i++)
@@ -801,7 +805,7 @@ void add_reber(FILE *f, const Increment *pp, const ModelSize *rcs, const Geometr
     }
 }
 
-void add_column_hexa(FILE *f, struct nodeElm startIndex, struct increment pp, struct geometry geo[])
+void add_column_hexa(FILE *f, struct nodeElm startIndex, struct increment pp, const Geometry geo[])
 {
     int typh[5] = {5, 1, 3, 1, 5};
     struct nodeElm index;
@@ -829,7 +833,7 @@ void add_column_hexa(FILE *f, struct nodeElm startIndex, struct increment pp, st
     }
 }
 
-void add_joint_quad(FILE *f, struct nodeElm startIndex, struct geometry geo[], struct increment pp, struct modelsize rcs, int columnHexaNode)
+void add_joint_quad(FILE *f, struct nodeElm startIndex, const Geometry geo[], struct increment pp, const ModelSize rcs, int columnHexaNode)
 {
     int film;
     int typq[5] = {0};
@@ -1075,7 +1079,7 @@ void add_joint_quad(FILE *f, struct nodeElm startIndex, struct geometry geo[], s
     print_etyp(f, film, film + (geo[1].boundary[2] - 1) * jointPp.elm[1], jointPp.elm[1], 2, jointPp.elm[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
 }
 
-void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, struct geometry geo[])
+void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, const Geometry geo[])
 {
     const int typh = 5;
     struct nodeElm  index;
@@ -1097,7 +1101,7 @@ void hexa_beam(FILE *f, struct nodeElm startIndex, struct increment pp, struct g
     }
 }
 
-void quad_beam(FILE *f, struct nodeElm startIndex, struct increment ppColumn, struct increment ppBeam, struct geometry geo[], int jointStartNode)
+void quad_beam(FILE *f, struct nodeElm startIndex, struct increment ppColumn, struct increment ppBeam, const Geometry geo[], int jointStartNode)
 {
     int flangeNum = geo[1].boundary[2] - geo[1].boundary[1];
     const int typq[4] = {0, 0, 4, 3};
@@ -1189,7 +1193,7 @@ void quad_beam(FILE *f, struct nodeElm startIndex, struct increment ppColumn, st
     print_COPYELM(f, index.elm, index.elm + elmDelt, ppBeam.elm[0], ppBeam.elm[2], ppBeam.node[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
 }
 
-void joint_nodes(FILE *f, int startNode, struct geometry geo[], struct modelsize rcs, int pp[])
+void joint_nodes(FILE *f, int startNode, const Geometry geo[], const ModelSize rcs, int pp[])
 {
     int node;
     //x直交面
@@ -1233,7 +1237,7 @@ void joint_nodes(FILE *f, int startNode, struct geometry geo[], struct modelsize
     }
 }
 
-void set_pin(FILE *f, int startNode, struct geometry geo[], int pp[], int opt1)
+void set_pin(FILE *f, int startNode, const Geometry geo[], int pp[], int opt1)
 {
     int rest = 99 * opt1 + 1;
     int dir  = 2 - 2 * opt1;
@@ -1245,7 +1249,7 @@ void set_pin(FILE *f, int startNode, struct geometry geo[], int pp[], int opt1)
     print_rest(f, node, node + delt, pp[1], rest, pp[dir], geo[dir].boundary[3 + opt1] - geo[dir].boundary[2] + opt1);
 }
 
-void set_roller(FILE *f, int startNode, struct loadNode load, struct geometry geo[], int pp[], int opt1, int span)
+void set_roller(FILE *f, int startNode, struct loadNode load, const Geometry geo[], int pp[], int opt1, int span)
 {
     int dir = opt1 * 2;
     int sub = dir + 1;
@@ -1281,7 +1285,7 @@ void set_roller(FILE *f, int startNode, struct loadNode load, struct geometry ge
     }
 }
 
-void cut_surface(FILE *f, struct geometry geo[], int columnStart, int jointStart, int beamStart, int columnPp[], int beamPp[])
+void cut_surface(FILE *f, const Geometry geo[], int columnStart, int jointStart, int beamStart, int columnPp[], int beamPp[])
 {
     int column = columnStart + geo[1].boundary[2] * columnPp[1];
     int beam   = beamStart   + (geo[1].boundary[2] - geo[1].boundary[1]) * beamPp[1];
@@ -1296,7 +1300,7 @@ void cut_surface(FILE *f, struct geometry geo[], int columnStart, int jointStart
     print_rest(f, beam, beam + (geo[0].boundary[6] - geo[0].boundary[4] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
 }
 
-void add_typh(FILE *f, struct geometry geo[], struct modelsize rcs, int columnStart, int columnPp[])
+void add_typh(FILE *f, const Geometry geo[], const ModelSize rcs, int columnStart, int columnPp[])
 {
     int column;
     int max[2];
@@ -1396,8 +1400,6 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
     const int startNode = 1;
     const int startElm  = 1;
-    ModelSize rcs;
-    Geometry  modelGeometry[XYZ];
     Increment columnPp;
     Increment beamPp;
     LoadNode  roller;
@@ -1405,21 +1407,18 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
     printf("\n[START]\n");
 
-    if(load_inputdata(inputFileName, modelGeometry, &rcs) == 1)
-    {
+    FILE *fin = fopen(inputFileName, "r");
+    if(fin == NULL){
+        printf("[ERROR] %s cant open.\n", inputFileName);
         return ;
     }
-
+    const ModelSize rcs = load_size(fin);
+    const Geometry  modelGeometry[XYZ] = {set_geometry(fin, 0, &rcs), set_geometry(fin, 1, &rcs), set_geometry(fin, 2, &rcs)};
+    fclose(fin);
+    
     //データチェック
     printf("\n------------------[ DATE CHECK ]------------------\n\n");
     printf("non\n----\n");
-
-    //x, y, z方向は入力範囲が半分
-    //yはハーフモデルのためそのまま
-    symmetrical_input(&modelGeometry[0]);
-    symmetrical_input(&modelGeometry[2]);
-
-    get_boundary(rcs, modelGeometry);
     
     //試験体情報表示
     console_model_sizes(rcs);
