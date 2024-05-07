@@ -1633,7 +1633,7 @@ int main(int argc, char *argv[])
         printf("opt\n");
         switch(optchar){
             case 't': //テンプレ出力
-                printf("option b\n");
+                printf("option t\n");
                 out_template();
                 return 0;
             case 'b': //beam 梁加力
