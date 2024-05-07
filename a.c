@@ -1584,7 +1584,7 @@ void out_template()
                 "Rebar 1: X() Y()\n"
                 "Rebar 2: X() Y()\n"
                 "Rebar 3: X() Y()\n"
-                "--"
+                "--\n"
                 "X_Mesh_Sizes(1,2,3)\n"
                 "Y_Mesh_Sizes(1,2,3)\n"
                 "Z_Mesh_Sizes(1,2,3)\n"
@@ -1609,6 +1609,7 @@ void show_usage()
 {
     printf(
         "options\n"
+        "-t : template\n"
         "-b : beam -> roller  column -> pin\n"
         "-f : full model \n"
     );
@@ -1630,7 +1631,6 @@ int main(int argc, char *argv[])
     }
     while((optchar = getopt(argc, argv, OPTCHAR)) != -1)
     {
-        printf("opt\n");
         switch(optchar){
             case 't': //テンプレ出力
                 printf("option t\n");
