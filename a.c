@@ -4,8 +4,9 @@
 #include <math.h>
 #include <unistd.h>
 
+#define TEMPLATE_FILE_NAME "template.txt"
 #define OUT_FILE_NAME      "out.ffi"
-#define OPTCHAR            "bfo:"
+#define OPTCHAR            "tbfo:"
 #define MESH_ARRAY_MAX 64 //注意が必要
 #define REBAR_MAX      16 
 #define BOUNDARY_MAX   8 //確定
@@ -1568,6 +1569,42 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
 }
 
+void out_template()
+{
+    FILE *f = fopen(TEMPLATE_FILE_NAME, "r");
+    if(f == NULL)
+    {
+        f = fopen(TEMPLATE_FILE_NAME, "w");
+        if(f != NULL)
+        {
+            fprintf(f,
+                "Column : Span() Width() Depth() X_Center() Y_Center()\n"
+                "Beam   : Span() Width() Depth() Y_Center() Z_Center()\n"
+                "xBeam  : Width()\n"
+                "Rebar 1: X() Y()\n"
+                "Rebar 2: X() Y()\n"
+                "Rebar 3: X() Y()\n"
+                "--"
+                "X_Mesh_Sizes(1,2,3)\n"
+                "Y_Mesh_Sizes(1,2,3)\n"
+                "Z_Mesh_Sizes(1,2,3)\n"
+                "END\n");
+            fclose(f);
+        }
+        else
+        {
+            printf("[ERROR] file cant open\n");
+            return ;
+        }
+    }
+    else
+    {
+        printf(TEMPLATE_FILE_NAME " already exist\n");
+        fclose(f);
+    }
+    return ;
+}
+
 void show_usage()
 {
     printf(
@@ -1595,13 +1632,17 @@ int main(int argc, char *argv[])
     {
         printf("opt\n");
         switch(optchar){
+            case 't': //テンプレ出力
+                printf("option b\n");
+                out_template();
+                return 0;
             case 'b': //beam 梁加力
                 opt1 = 1;
                 printf("option b\n");
                 break;
             default:
                 show_usage();
-                return 1;
+                return 0;
         }
     }
     if(optind < argc){
