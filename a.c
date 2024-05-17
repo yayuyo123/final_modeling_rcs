@@ -8,9 +8,10 @@
 #define OUT_FILE_NAME      "out.ffi"
 #define OPTCHAR            "tbfo:"
 #define MESH_ARRAY_MAX 64 //注意が必要
-#define REBAR_MAX      16 
+#define REBAR_MAX      32 
 #define BOUNDARY_MAX   8 //確定
 #define XYZ            3    
+#define JIG            1
 
 typedef struct components
 {
@@ -188,10 +189,10 @@ void get_boundary(int boundary[], const Mesh *mesh, int dir, const ModelSize *rc
         boundary[2] = mesh->number;
     }else if(dir == 2){ //z
         boundary[0] = 0;
-        boundary[1] = 1;
+        boundary[1] = JIG;
         boundary[2] = coordinate_to_point((rcs->column.span - rcs->beam.depth) / 2, mesh->length);
         boundary[3] = coordinate_to_point((rcs->column.span + rcs->beam.depth) / 2, mesh->length);
-        boundary[4] = mesh->number - 1;
+        boundary[4] = mesh->number - JIG;
         boundary[5] = mesh->number;
     }
 }
@@ -268,7 +269,7 @@ int count_consecutive(int start, int end, const double array[])
     return count;
 }
 
-void get_increment(Increment *column, Increment *beam, const Geometry geo[])
+void get_column_increment(Increment *column, const Geometry geo[])
 {
     //柱
     column->node[0] = 1;
@@ -277,6 +278,18 @@ void get_increment(Increment *column, Increment *beam, const Geometry geo[])
     column->elm [0] = 1;
     column->elm [1] = geo[0].boundary[4] - geo[0].boundary[2];
     column->elm [2] = column->elm[1] * (geo[1].boundary[2] - geo[1].boundary[0]);
+}
+
+void get_joint_increment(Increment *column, Increment *joint, const Geometry geo[])
+{
+    //接合部
+    *joint = *column;
+    joint->elm[1] = column->elm[1] + 4;
+    joint->elm[2] = joint->elm[1] * (geo[1].boundary[2] - geo[1].boundary[0] + 2);
+}
+
+void get_beam_increment(Increment *beam, const Geometry geo[])
+{
     //梁
     beam->node[0] = 1;
     beam->node[1] = geo[0].boundary[6] + 1;
@@ -755,11 +768,13 @@ void generate_line(FILE *f, int elm, int hexaNode, int beamNode, int nodePp, int
 
 int search_concrete_node(int start, const int pp[], int x, int y, int z, int boundaryZ)
 {
-    return start + pp[0] * x + pp[1] * y + pp[2] * (z + boundaryZ);
+    const int bou[5] = {0, 0, 1, 2, 2};
+    return start + pp[0] * x + pp[1] * y + pp[2] * (z + bou[boundaryZ]);
 }
 
 void add_reber(FILE *f, const Increment *pp, const ModelSize *rcs, const Geometry geo[], const NodeElm *rebarStartIndex, const int columnStartNode)
 {
+    /*きたない*/
     const int dir  = 2;
     const int typb = 1;
     NodeElm  index;
@@ -808,29 +823,31 @@ void add_reber(FILE *f, const Increment *pp, const ModelSize *rcs, const Geometr
 
 void add_column_hexa(FILE *f, struct nodeElm startIndex, struct increment pp, const Geometry geo[])
 {
-    int typh[5] = {5, 1, 3, 1, 5};
+    const int bou[4] = {0, 2, 3, 5};
+    int typh[3] = {1, 3, 1};
     struct nodeElm index;
     struct startEnd point;
     index = startIndex;
-
+    //y方向
     point.start[1] = geo[1].boundary[0];
     point.end  [1] = geo[1].boundary[2];
-    for(int j = 0; j <= 4; j++)
+    for(int j = 0; j <= 2; j++)
     {
         fprintf(f, "\n----TYPH %1d----", typh[j]);
-        point.start[2] = geo[2].boundary[j];
-        point.end  [2] = geo[2].boundary[j + 1];
-        for(int i = 2; i < 4; i++)
+        //z方向
+        point.start[2] = geo[2].boundary[bou[j]];
+        point.end  [2] = geo[2].boundary[bou[j + 1]];
+        for(int i = 2; i <= 3; i++)
         {
             fprintf(f, "\n----\n");
+            //x方向
             point.start[0] = geo[0].boundary[i];
             point.end  [0] = geo[0].boundary[i + 1];
+            //節点、要素番号
+            index.node = startIndex.node + (geo[0].boundary[i] - geo[0].boundary[2] + i - 2) * pp.node[0] + (geo[2].boundary[bou[j]] + j) * pp.node[2];
+            index.elm  = startIndex.elm  + (geo[0].boundary[i] - geo[0].boundary[2])         * pp.elm [0] +  geo[2].boundary[bou[j]]      * pp.elm [2];
             generate_hexa(f, &index, &pp, &point, geo, typh[j]);
-            index.node += (geo[0].boundary[i + 1] - geo[0].boundary[i] + 1) * pp.node[0];
-            index.elm  += (geo[0].boundary[i + 1] - geo[0].boundary[i])     * pp.elm [0];
         }
-        index.node = startIndex.node + (geo[2].boundary[j + 1] + j + 1) * pp.node[2];
-        index.elm  = startIndex.elm  +  geo[2].boundary[j + 1]          * pp.elm [2];
     }
 }
 
@@ -1301,7 +1318,7 @@ void cut_surface(FILE *f, const Geometry geo[], int columnStart, int jointStart,
     print_rest(f, beam, beam + (geo[0].boundary[6] - geo[0].boundary[4] - 1) * beamPp[0], beamPp[0], 10, beamPp[2], geo[2].boundary[3] - geo[2].boundary[2]);
 }
 
-void add_typh(FILE *f, const Geometry geo[], const ModelSize rcs, int columnStart, int columnPp[])
+void add_typh(FILE *f, const Geometry geo[], const ModelSize rcs, int columnElm, int columnPp[])
 {
     int column;
     int max[2];
@@ -1330,24 +1347,27 @@ void add_typh(FILE *f, const Geometry geo[], const ModelSize rcs, int columnStar
     max[1] = coordinate_to_point(maxCordi[1], geo[1].mesh.length);
     min[1] = coordinate_to_point(minCordi[1], geo[1].mesh.length);
     //加力治具
-    for(int i = 0; i <= 4; i += 4)
+    for(int j = 0; j <= 4; j += 4)
     {
-        column = columnStart + geo[2].boundary[i] * columnPp[2];
-        print_etyp(f, column, column + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * columnPp[0], columnPp[0], 5, columnPp[1], geo[1].boundary[2] - geo[1].boundary[0] - 1);
+        for(int i = geo[2].boundary[j]; i < geo[2].boundary[j + 1]; i++)
+        {
+            column = columnElm + i * columnPp[2];
+            print_etyp(f, column, column + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * columnPp[0], columnPp[0], 5, columnPp[1], geo[1].boundary[2] - geo[1].boundary[0] - 1);
+        }
     }
     //かぶり
     for(int j = 1; j <= 3; j += 2)
     {
         for(int i = 0; i < min[1]; i++)
         {
-            column = columnStart + i * columnPp[1] + geo[2].boundary[j] * columnPp[2];
+            column = columnElm + i * columnPp[1] + geo[2].boundary[j] * columnPp[2];
             print_etyp(f, column, column + (geo[0].boundary[4] - geo[0].boundary[2] - 1) * columnPp[0], columnPp[0], 2, columnPp[2], geo[2].boundary[j + 1] - geo[2].boundary[j] - 1);
         }
         for(int i = 0; i < geo[0].boundary[4] - geo[0].boundary[2]; i++)
         {
             if(i < min[0] || i >= max[0])
             {
-                column = columnStart + i * columnPp[0] + min[1] * columnPp[1] + geo[2].boundary[j] * columnPp[2];
+                column = columnElm + i * columnPp[0] + min[1] * columnPp[1] + geo[2].boundary[j] * columnPp[2];
                 print_etyp(f, column, column + (geo[1].boundary[2] - min[1] - 1) * columnPp[1], columnPp[1], 2, columnPp[2], geo[2].boundary[j + 1] - geo[2].boundary[j] - 1);
             }
         }
@@ -1359,11 +1379,75 @@ void add_typh(FILE *f, const Geometry geo[], const ModelSize rcs, int columnStar
     min[1] = coordinate_to_point((rcs.column.width - rcs.beam.width) / 2, geo[1].mesh.length);
     for(int i = 0; i < min[1]; i++)
     {
-        column = columnStart + i * columnPp[1] + geo[2].boundary[2] * columnPp[2];
+        column = columnElm + i * columnPp[1] + geo[2].boundary[2] * columnPp[2];
         print_etyp(f, column, column + (min[0] - 1) * columnPp[0], columnPp[0], 4, columnPp[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
         column += max[0] * columnPp[0];
         print_etyp(f, column, column + (geo[0].boundary[4] - max[0] - geo[0].boundary[2] - 1) * columnPp[0], columnPp[0], 4, columnPp[2], geo[2].boundary[3] - geo[2].boundary[2] - 1);
     }
+}
+
+void set_column_hexa(const int startNode, const int startElm, NodeElm *columnHexa)
+{
+    //柱六面体要素
+    columnHexa->node = startNode;
+    columnHexa->elm  = startElm;
+}
+
+void set_column_fiber(const Geometry geo[], NodeElm *columnHexa, NodeElm *columnFibar)
+{
+    //柱線材要素
+    columnFibar->node = columnHexa->node - 1;
+    columnFibar->node += (geo[0].boundary[4] - geo[0].boundary[2] + 2)
+                      *  (geo[1].boundary[2] - geo[1].boundary[0] + 1)
+                      *  (geo[2].boundary[5] - geo[2].boundary[0] + 3);
+    columnFibar->node = next_index(columnFibar->node);
+    columnFibar->elm  = columnHexa->elm - 1;
+    columnFibar->elm += (geo[0].boundary[4] - geo[0].boundary[2])
+                     *  (geo[1].boundary[2] - geo[1].boundary[0])
+                     *  (geo[2].boundary[5] - geo[2].boundary[0]);
+    columnFibar->elm  = next_index(columnFibar->elm);
+}
+
+void set_joint_quad(const Geometry geo[], const ModelSize *rcs, Increment *columnPp, NodeElm *columnFibar, NodeElm *jointQuad)
+{
+    //接合部四辺形要素
+    int rebarNum = 0;
+    for(int i = 0; i < REBAR_MAX; i++)
+    {
+        if(rcs->rebar[i].cordi[0] < 0)
+        {
+            rebarNum = i - 1;
+            break;
+        }
+    }
+    jointQuad->node  = columnFibar->node + rebarNum - 1;
+    jointQuad->node += (geo[2].boundary[4] - geo[2].boundary[1] + 3) * columnPp->node[2];
+    jointQuad->node  = next_index(jointQuad->node);
+    jointQuad->elm   = next_index(rebarNum * (geo[2].boundary[4] - geo[2].boundary[1]));
+}
+
+void set_joint_film(const Geometry geo[], int jointElm, int *jointFilm)
+{
+    //接合部フィルム要素
+    *jointFilm  = jointElm - 1;
+    *jointFilm += (geo[0].boundary[4] - geo[0].boundary[2] + 3)
+                * (geo[1].boundary[2] - geo[1].boundary[0] + 2)
+                * (geo[2].boundary[3] - geo[2].boundary[2] + 2);
+}
+
+void set_beam(const Geometry geo[], NodeElm *beam, int jointNode, int jointFilm)
+{
+    //梁
+    beam->node = jointNode - 1;
+    beam->node += (geo[0].boundary[4] - geo[0].boundary[2] + 1)
+                * (geo[1].boundary[2] - geo[1].boundary[0] + 1)
+                * (geo[2].boundary[3] - geo[2].boundary[2] + 1);
+    beam->node = next_index(beam->node);
+    beam->elm = jointFilm - 1;
+    beam->elm += (geo[0].boundary[4] - geo[0].boundary[2] + 4)
+               * (geo[1].boundary[2] - geo[1].boundary[0] + 2)
+               * (geo[2].boundary[3] - geo[2].boundary[2] + 4);
+    beam->elm = next_index(beam->elm);
 }
 
 void modeling_rcs(const char *inputFileName, int opt1)
@@ -1401,8 +1485,6 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
     const int startNode = 1;
     const int startElm  = 1;
-    Increment columnPp;
-    Increment beamPp;
     LoadNode  roller;
     LoadNode  pin;
 
@@ -1432,59 +1514,36 @@ void modeling_rcs(const char *inputFileName, int opt1)
     console_boundary(modelGeometry);
 
     //インクリメント
-    get_increment(&columnPp, &beamPp, modelGeometry);
+    Increment columnPp;
+    get_column_increment(&columnPp, modelGeometry);
+
+    Increment jointPp;
+    get_joint_increment(&columnPp, &jointPp, modelGeometry);
+
+    Increment beamPp;
+    get_beam_increment(&beamPp, modelGeometry);
+
     console_increment(&columnPp);
+    console_increment(&jointPp);
     console_increment(&beamPp);
 
     //
     NodeElm   columnHexa;
-    columnHexa.node = startNode;
-    columnHexa.elm  = startElm;
+    set_column_hexa(startNode, startElm, &columnHexa);
 
     NodeElm   columnFibar;
-    columnFibar.node = columnHexa.node - 1;
-    columnFibar.node += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 2)
-                      * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1)
-                      * (modelGeometry[2].boundary[5] - modelGeometry[2].boundary[0] + 5);
-    columnFibar.node = next_index(columnFibar.node);
-    columnFibar.elm  = columnHexa.elm - 1;
-    columnFibar.elm += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2])
-                     * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0])
-                     * (modelGeometry[2].boundary[5] - modelGeometry[2].boundary[0]);
-    columnFibar.elm  = next_index(columnFibar.elm);
+    set_column_fiber(modelGeometry, &columnHexa, &columnFibar);
 
     NodeElm   jointQuad;
-    int elmNum = 0;
-    jointQuad.node  = columnFibar.node - 1;
-    for(int i = 0; i < REBAR_MAX; i++)
-    {
-        if(rcs.rebar[i].cordi[0] < 0)
-        {
-            jointQuad.node += i - 1;
-            elmNum         += i - 1;
-            break;
-        }
-    }
-    jointQuad.node += (modelGeometry[2].boundary[4] - modelGeometry[2].boundary[1] + 3) * columnPp.node[2];
-    jointQuad.node  = next_index(jointQuad.node);
-    elmNum         += (modelGeometry[2].boundary[4] - modelGeometry[2].boundary[1]) * columnPp.elm[2];
-    elmNum          = next_index(elmNum) - 1;
-    jointQuad.elm  = columnFibar.elm + elmNum * 2;
+    set_joint_quad(modelGeometry, &rcs, &columnPp, &columnFibar, &jointQuad);
+    
+    int jointFilm;
+    set_joint_film(modelGeometry, jointQuad.elm, &jointFilm);
 
-    NodeElm   beamHexa;
-    beamHexa.node = jointQuad.node - 1;
-    beamHexa.node += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 1)
-                      * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 1)
-                      * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 1);
-    beamHexa.node = next_index(beamHexa.node);
-    elmNum = 0;
-    elmNum += (modelGeometry[0].boundary[4] - modelGeometry[0].boundary[2] + 4)
-                      * (modelGeometry[1].boundary[2] - modelGeometry[1].boundary[0] + 2)
-                      * (modelGeometry[2].boundary[3] - modelGeometry[2].boundary[2] + 4);
-    elmNum = next_index(elmNum) - 1;
-    beamHexa.elm = jointQuad.elm + elmNum * 2;
+    NodeElm   beam;
+    set_beam(modelGeometry, &beam, jointQuad.node, jointFilm);
 
-    get_load_node(&pin, &roller, columnHexa.node, beamHexa.node, columnPp.node, beamPp.node, modelGeometry, rcs.column.span, opt1);
+    get_load_node(&pin, &roller, columnHexa.node, beam.node, columnPp.node, beamPp.node, modelGeometry, rcs.column.span, opt1);
 
     //node
     FILE *fnode = fopen("node.txt", "w");
@@ -1493,7 +1552,7 @@ void modeling_rcs(const char *inputFileName, int opt1)
         fprintf(fnode, "--\nparts   node      incX     Y     Z\n");
         fprintf(fnode, "column %5d  %5d %5d %5d\n", columnHexa.node, columnPp.node[0], columnPp.node[1], columnPp.node[2]);
         fprintf(fnode, "joint  %5d  %5d %5d %5d\n", jointQuad.node, columnPp.node[0], columnPp.node[1], columnPp.node[2]);
-        fprintf(fnode, "beam   %5d  %5d %5d %5d\n", beamHexa.node, beamPp.node[0], beamPp.node[1], beamPp.node[2]);
+        fprintf(fnode, "beam   %5d  %5d %5d %5d\n", beam.node, beamPp.node[0], beamPp.node[1], beamPp.node[2]);
         fprintf(fnode, "--\nroller %5d %5d\n", roller.node1, roller.node2);
         fprintf(fnode, "pin    %5d %5d\n", pin.node1, pin.node2);
         fprintf(fnode, "--\nweb panel\n");
@@ -1527,6 +1586,7 @@ void modeling_rcs(const char *inputFileName, int opt1)
     //柱六面体要素
     console_index(columnHexa, "concrete");
     add_column_hexa(fout, columnHexa, columnPp, modelGeometry);
+    add_typh(fout, modelGeometry, rcs, startElm, columnPp.elm);
 
     //柱線材要素
     console_index(columnFibar, "rebar");
@@ -1534,20 +1594,21 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
     printf("\n------------------[ BEAM ]------------------\n");
     //四辺形要素
-    console_index(jointQuad, " column quad");
-    add_joint_quad(fout, jointQuad, modelGeometry, columnPp, rcs, columnHexa.node);
+    //console_index(jointQuad, " column quad");
+    //add_joint_quad(fout, jointQuad, modelGeometry, columnPp, rcs, columnHexa.node);
 
     //六面体要素
-    console_index(beamHexa, "hexa beam");
-    hexa_beam(fout, beamHexa, beamPp, modelGeometry);
+    //console_index(beamHexa, "hexa beam");
+    //hexa_beam(fout, beamHexa, beamPp, modelGeometry);
 
     //四辺形要素
-    quad_beam(fout, beamHexa, columnPp, beamPp, modelGeometry, jointQuad.node);
+    //quad_beam(fout, beamHexa, columnPp, beamPp, modelGeometry, jointQuad.node);
     
     //
-    joint_nodes(fout, startNode, modelGeometry, rcs, columnPp.node);
+    //joint_nodes(fout, startNode, modelGeometry, rcs, columnPp.node);
 
     //柱加力or梁加力
+/*
     if(opt1 == 0)//柱加力
     {
         set_pin(fout, beamHexa.node, modelGeometry, beamPp.node, opt1);
@@ -1557,10 +1618,9 @@ void modeling_rcs(const char *inputFileName, int opt1)
         set_pin(fout, columnHexa.node, modelGeometry, columnPp.node, opt1);
         set_roller(fout, beamHexa.node, roller, modelGeometry, beamPp.node, opt1, rcs.column.span);
     }
-
-    cut_surface(fout, modelGeometry, startNode, jointQuad.node, beamHexa.node, columnPp.node, beamPp.node);
+*/
+    //cut_surface(fout, modelGeometry, startNode, jointQuad.node, beamHexa.node, columnPp.node, beamPp.node);
     //六面体要素番号
-    add_typh(fout, modelGeometry, rcs, startElm, columnPp.elm);
 
     print_tail_template(fout, roller, startElm, modelGeometry, rcs.column.Fc, columnPp.elm, opt1);
     fclose(fout);
