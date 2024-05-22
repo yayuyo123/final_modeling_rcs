@@ -4,10 +4,12 @@
 #include <math.h>
 #include <unistd.h>
 
-#define TEMPLATE_FILE_NAME "template.txt"
-#define OUT_FILE_NAME      "out.ffi"
-#define OPTCHAR            "tbfo:"
+#define TEMPLATE_FILE_NAME         "template.txt"
+#define LOADING_TEMPLATE_FILE_NAME "step_disp.txt"
+#define OUT_FILE_NAME              "out.ffi"
+#define OPTCHAR                    "tlbfs:o:v"
 #define MESH_ARRAY_MAX 64 //注意が必要
+#define STEP_DISP_MAX  64
 #define REBAR_MAX      32 
 #define BOUNDARY_MAX   8 //確定
 #define XYZ            3    
@@ -115,9 +117,62 @@ typedef struct
     int elm;
 } beam;
 
+typedef struct
+{
+    int    step;
+    double disp;
+} StepDisp;
+
+void read_int_csv(FILE *f, int array[])
+{
+    //()で囲まれた整数型csvデータを読み込む
+    //最後尾の要素は-999を格納する
+    //ファイルポインタを改行後に移動
+    int cnt = 0;
+    if(fgetc(f) == '(')
+    {
+        fscanf(f, "%d[^,)]", &array[cnt++]);
+        while (fgetc(f) != ')')
+        {
+            fscanf(f, "%d[^,)]", &array[cnt++]);
+        }
+        array[cnt] = -999;
+    }
+    else
+    {
+        printf("error\n");
+        return;
+    }
+    while((fgetc(f)) != '\n'){}
+}
+
+void read_double_csv(FILE *f, double array[])
+{
+    //()で囲まれた実数型csvデータを読み込む
+    //最後尾の要素は-999を格納する
+    //ファイルポインタを改行後に移動
+    int cnt = 0;
+    if(fgetc(f) == '(')
+    {
+        fscanf(f, "%lf[^,)]", &array[cnt++]);
+        while (fgetc(f) != ')')
+        {
+            fscanf(f, "%lf[^,)]", &array[cnt++]);
+        }
+        array[cnt] = -999.0;
+    }
+    else
+    {
+        printf("error\n");
+        return;
+    }
+    while((fgetc(f)) != '\n'){}
+}
+
 
 void read_csv(FILE *f, Mesh *mesh)
 {
+    //()で囲まれたcsvを読み取る
     int cnt = 0;
     if(fgetc(f) == '(')
     {
@@ -130,7 +185,6 @@ void read_csv(FILE *f, Mesh *mesh)
         mesh->length[cnt] = -999.0;
     }
 }
-
 
 ModelSize load_size(FILE *f)
 {
@@ -197,6 +251,43 @@ Mesh load_mesh(FILE *f, int dir)
         symmetrical_input(&mesh);
     }
     return mesh;
+}
+
+void read_loading_step(const char *loadingStepFile, StepDisp stepDisp[])
+{
+    int step[STEP_DISP_MAX];
+    double disp[STEP_DISP_MAX];
+    FILE *f = fopen(loadingStepFile, "r");
+    if(f == NULL)
+    {
+        printf("error\n");
+        return;
+    }
+    else
+    {
+        //stepデータ読込み
+        fscanf(f, "step");
+        read_int_csv(f, step);
+        //dispデータ読込み
+        fscanf(f, "disp");
+        read_double_csv(f, disp);
+        fclose(f);
+    }
+    if(step[0] <= 1)
+    {
+        //step1は軸力導入
+        printf("error\n");
+        return;
+    }
+    for(int i = 0; ; i++)
+    {
+        stepDisp[i].step = step[i];
+        stepDisp[i].disp = disp[i];
+        if(step[i] < 0)
+        {
+            break;
+        }
+    }
 }
 
 int coordinate_to_point(double cordi, const double array[])
@@ -449,8 +540,33 @@ void console_numbers(const column *columnNumbers, const joint *jointNumbers, con
     printf("elm  : %5d\n", beamNumbers->elm);
 }
 
+void console_step_disp(StepDisp stepDisp[])
+{
+    printf("\n------------------[ STEPDISP ]------------------\n");
+    printf("step :");
+    for(int i = 0; ; i++)
+    {
+        printf(" %8d", stepDisp[i].step);
+        if(stepDisp[i].step < 0)
+        {
+            printf("\n");
+            break;
+        }
+    }
+    printf("disp :");
+    for(int i = 0; ; i++)
+    {
+        printf(" %8.2f", stepDisp[i].disp);
+        if(stepDisp[i].step < 0)
+        {
+            printf("\n");
+            break;
+        }
+    }
+}
+
 //頭のひな形
-void print_head_template(FILE *f, struct loadNode load, int opt1)
+void print_head_template(FILE *f, struct loadNode load, int opt1, int lastStep)
 {
     int node = load.node1;
     if(opt1 == 0)
@@ -461,19 +577,20 @@ void print_head_template(FILE *f, struct loadNode load, int opt1)
     fprintf(f,
     "-------------------< FINAL version 11  Input data >---------------------\n"
     "TITL :\n"
-    "EXEC :STEP (    1)-->(   11)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
+    "EXEC :STEP (    1)-->(%5d)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
     "LIST :ECHO=(0)  MODEL=(1)  RESULTS=(1)  MESSAGE=(2)  WARNING=(2)  (0:NO)\n"
     "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
     "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
     "LOAD :APPLIED LOAD MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
-    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", node, dir, node, dir);
+    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n", lastStep, node, dir, node, dir);
 }
 
-void column_axial_force(FILE *f, int startElm, const Geometry geo[], double Fc, int elmPp[])
+void print_column_axial_force(FILE *f, int startElm, const Geometry geo[], double Fc, int elmPp[])
 {
     int elm;
     double rate = 0.2;
     double unit = rate * Fc;
+    fprintf(f, "\n----+----\n");
     fprintf(f,"\nSTEP :UP TO NO.(    1)   MAXIMUM LOAD INCREMENT=         CREEP=( )(0:NO)\n");
     for(int i = 0; i < geo[1].boundary[2]; i++)
     {
@@ -488,9 +605,8 @@ void column_axial_force(FILE *f, int startElm, const Geometry geo[], double Fc, 
     fprintf(f," OUT :STEP  S(    1)-E(     )-I(     ) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n\n");
 }
 
-void print_tail_template(FILE *f, struct loadNode load, int startElm, const Geometry geo[], double Fc, int elmPp[], int opt1)
+void print_type_mat(FILE *f)
 {
-    int dir = 1 + 2 * opt1;
     fprintf(f,
     "\n----+----\n"
     "TYPH :(  1)  MATC(  1)  AXIS(   )\n"
@@ -539,15 +655,55 @@ void print_tail_template(FILE *f, struct loadNode load, int startElm, const Geom
     "MATJ :(  1)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n"
     "MATJ :(  2)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n"
     "\n----+----\n"
-    "AXIS :(  1)  TYPE=(1) (1:GLOBAL 2:ELEMENT 3:INPUT 4:CYLINDER 5:SPHERE)\n"
-    "\n----+----");
-    column_axial_force(f, startElm, geo, Fc, elmPp);
+    "AXIS :(  1)  TYPE=(1) (1:GLOBAL 2:ELEMENT 3:INPUT 4:CYLINDER 5:SPHERE)\n");
+}
+
+void print_test_step(FILE *f, struct loadNode load, int opt1)
+{
+    int dir = 0;
+    if(opt1 == 0)
+    {
+        //柱加力
+        dir = 1;
+    }
+    else if(opt1 == 1)
+    {
+        //梁加力
+        dir = 3;
+    }
     fprintf(f,
+    "\n"
     "STEP :UP TO NO.(   11)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=-10      DIR(%1d)\n"
     "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=10       DIR(%1d)\n"
     " OUT :STEP  S(    2)-E(   11)-I(    1) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
     "\nEND\n", load.node1, dir, load.node2, dir);
+}
+
+void print_loading_step(FILE *f, struct loadNode load, int opt1, StepDisp stepDisp[])
+{
+    int dir = 0;
+    if(opt1 == 0)
+    {
+        //柱加力
+        dir = 1;
+    }
+    else if(opt1 == 1)
+    {
+        //梁加力
+        dir = 3;
+    }
+    for(int i = 0; stepDisp[i].step > 0;i++)
+    {
+        fprintf(f,
+        "\n"
+        "STEP :UP TO NO.(%5d)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n"
+        "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=%-9.2fDIR(%1d)\n"
+        "  FN :NODE  S(%5d)-E(     )-I(     )     DISP=%-9.2fDIR(%1d)\n"
+        " OUT :STEP  S(%5d)-E(     )-I(     ) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n"
+        , stepDisp[i].step, load.node1, -1 * stepDisp[i].disp, dir, load.node2, stepDisp[i].disp, dir, stepDisp[i].step);
+    }
+    fprintf(f, "\nEND\n");
 }
 
 /*NODEデータ書き込み*/
@@ -1629,7 +1785,7 @@ beam set_beam_heads(const joint *jointNumbers, const joint *jointHeads)
     return heads;
 }
 
-void modeling_rcs(const char *inputFileName, int opt1)
+void modeling_rcs(const char *inputFileName, int opt1, const char *stepDispFile)
 {
     /*todo
         ---要素タイプ---
@@ -1676,7 +1832,8 @@ void modeling_rcs(const char *inputFileName, int opt1)
     const ModelSize rcs = load_size(fin);
     const Geometry  modelGeometry[XYZ] = {set_geometry(fin, 0, &rcs), set_geometry(fin, 1, &rcs), set_geometry(fin, 2, &rcs)};
     fclose(fin);
-    
+
+
     //データチェック
     printf("\n------------------[ DATE CHECK ]------------------\n\n");
     const column columnNumbers = count_column_Numbers(modelGeometry, &rcs);
@@ -1716,6 +1873,13 @@ void modeling_rcs(const char *inputFileName, int opt1)
 
     console_numbers(&columnNumbers, &jointNumbers, &beamNumbers);
 
+    StepDisp stepDisp[STEP_DISP_MAX];
+    if(stepDispFile != NULL)
+    {
+        read_loading_step(stepDispFile, stepDisp);
+        console_step_disp(stepDisp);
+    }
+
     get_load_node(&pin, &roller, columnHeads.node.hexa, beamHeads.node, columnPp.node, beamPp.node, modelGeometry, rcs.column.span, opt1);
 
     //node
@@ -1753,8 +1917,22 @@ void modeling_rcs(const char *inputFileName, int opt1)
         return ;
     }
 
-    //雛形
-    print_head_template(fout, roller, opt1);    
+    //解析制御データ
+    if(stepDispFile == NULL)
+    {
+        print_head_template(fout, roller, opt1, 11);    
+    }
+    else
+    {
+        for(int i = 0; i < STEP_DISP_MAX; i++)
+        {
+            if(stepDisp[i].step < 0)
+            {
+                print_head_template(fout, roller, opt1, stepDisp[--i].step);
+                break;
+            }  
+        }
+    }
 
     //柱六面体要素
     add_column_hexa(fout, &columnHeads, columnPp, modelGeometry);
@@ -1788,9 +1966,19 @@ void modeling_rcs(const char *inputFileName, int opt1)
     }
 
     cut_surface(fout, modelGeometry, columnHeads.node.hexa, jointHeads.node.quad, beamHeads.node, columnPp.node, beamPp.node);
-    //六面体要素番号
 
-    print_tail_template(fout, roller, columnHeads.elm.hexa, modelGeometry, rcs.column.Fc, columnPp.elm, opt1);
+    print_type_mat(fout);
+    print_column_axial_force(fout, columnHeads.elm.hexa, modelGeometry, rcs.column.Fc, columnPp.elm);
+
+    if(stepDispFile == NULL)
+    {
+        print_test_step(fout, roller, opt1);
+    }
+    else
+    {
+        print_loading_step(fout, roller, opt1, stepDisp);
+    }
+
     fclose(fout);
 
     printf("\n[END]\n");
@@ -1833,14 +2021,50 @@ void out_template()
     return ;
 }
 
+void out_loading_template()
+{
+    FILE *f = fopen(LOADING_TEMPLATE_FILE_NAME, "r");
+    if(f == NULL)
+    {
+        f = fopen(LOADING_TEMPLATE_FILE_NAME, "w");
+        if(f != NULL)
+        {
+            fprintf(f,
+                "step(2,3,4)\n"
+                "disp(5,-5,10)\n"
+                "END\n");
+            fclose(f);
+        }
+        else
+        {
+            printf("[ERROR] file cant open\n");
+            return ;
+        }
+    }
+    else
+    {
+        printf(LOADING_TEMPLATE_FILE_NAME " already exist\n");
+        fclose(f);
+    }
+    return ;
+}
+
 void show_usage()
 {
     printf(
         "options\n"
-        "-t : template\n"
+        "-t : out template\n"
+        "-l : out loading template\n"
         "-b : beam -> roller  column -> pin\n"
+        "-s : write loading step\n"
         "-f : full model \n"
     );
+}
+
+void console_version()
+{
+    const char *date = "2024/05/22";
+    printf("last updated -> %s\n", date);
 }
 
 int main(int argc, char *argv[])
@@ -1849,8 +2073,9 @@ int main(int argc, char *argv[])
         command [options] [arguments]
     */
     int         optchar;
-    int         opt1 = 0;
-    const char* inputFile = NULL;
+    int         optb = 0;
+    const char *inputFile = NULL;
+    const char *stepDispFile = NULL;
 
     if(argc < 2)
     {
@@ -1864,10 +2089,23 @@ int main(int argc, char *argv[])
                 printf("option t\n");
                 out_template();
                 return 0;
+            case 'l': //laoding step出力
+                printf("option l\n");
+                out_loading_template();
+                return 0;
             case 'b': //beam 梁加力
-                opt1 = 1;
+                optb = 1;
                 printf("option b\n");
                 break;
+            case 's':
+                stepDispFile = optarg;
+                printf("option s\n"
+                       "Loading step file is \"%s\"\n", stepDispFile);
+                break;
+            case 'v':
+                printf("option v\n");
+                console_version();
+                return 0;
             default:
                 show_usage();
                 return 0;
@@ -1880,8 +2118,8 @@ int main(int argc, char *argv[])
         return 1;
     }
     if(inputFile != NULL){
-        printf("Input file: %s\n", inputFile);
-        modeling_rcs(inputFile, opt1);
+        printf("Input file is \"%s\"\n", inputFile);
+        modeling_rcs(inputFile, optb, stepDispFile);
     }
     return 0;
 }
